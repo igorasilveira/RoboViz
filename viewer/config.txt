@@ -22,6 +22,7 @@ Save Frame State     : true
 Overlay Default Visibility:
 Server Speed         : true
 Foul Overlay         : true
+Statistics Overlay   : true
 Field Overlay        : true
 Number of Players    : true
 Player IDs           : true

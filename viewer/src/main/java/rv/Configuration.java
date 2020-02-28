@@ -134,6 +134,7 @@ public class Configuration
 	{
 		public boolean serverSpeed = true;
 		public boolean foulOverlay = true;
+		public boolean statisticsOverlay = true;
 		public boolean fieldOverlay = false;
 		public boolean numberOfPlayers = false;
 		public boolean playerIDs = false;
@@ -154,6 +155,7 @@ public class Configuration
 			writeSection(out, "Overlay Default Visibility");
 			writeVal(out, "Server Speed", serverSpeed);
 			writeVal(out, "Foul Overlay", foulOverlay);
+			writeVal(out, "Statistics Overlay", statisticsOverlay);
 			writeVal(out, "Field Overlay", fieldOverlay);
 			writeVal(out, "Number of Players", numberOfPlayers);
 			writeVal(out, "Player IDs", playerIDs);

@@ -67,6 +67,7 @@ public abstract class ViewerScreenBase
 
 	protected final GameStateOverlay gameStateOverlay;
 	private final Field2DOverlay fieldOverlay;
+	private final StatisticsOverlay statisticsOverlay;
 	private final FoulListOverlay foulListOverlay;
 	protected final List<Screen> overlays = new ArrayList<>();
 
@@ -86,6 +87,7 @@ public abstract class ViewerScreenBase
 	protected int prevScoreL = -1;
 	protected int prevScoreR = -1;
 	private boolean showNumPlayers = false;
+	private boolean liveDirecting = false;
 
 	public ViewerScreenBase(Viewer viewer)
 	{
@@ -94,6 +96,8 @@ public abstract class ViewerScreenBase
 		overlays.add(gameStateOverlay);
 		fieldOverlay = new Field2DOverlay(viewer.getWorldModel());
 		overlays.add(fieldOverlay);
+		statisticsOverlay = new StatisticsOverlay(viewer);
+		overlays.add(statisticsOverlay);
 		foulListOverlay = new FoulListOverlay(viewer);
 		overlays.add(foulListOverlay);
 
@@ -124,10 +128,12 @@ public abstract class ViewerScreenBase
 		menu.addItem("Toggle Field Overlay", "F", this::toggleFieldOverlay);
 		menu.addItem("Toggle Drawings", "T", this::toggleDrawings);
 		menu.addItem("Toggle Fouls", "Q", this::toggleFouls);
+		menu.addItem("Toggle Statistics", "U", this::toggleStatistics);
 	}
 
 	private void createCameraMenu(Menu menu)
 	{
+		menu.addItem("Live Directing", KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.SHIFT_MASK), this::toggleLiveDirecting);
 		menu.addItem("Track Ball", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), this::toggleBallTracker);
 		menu.addItem("Track Player", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, KeyEvent.SHIFT_MASK),
 				this::togglePlayerTracker);
@@ -148,6 +154,7 @@ public abstract class ViewerScreenBase
 	protected void loadOverlayVisibilities(Configuration.OverlayVisibility config)
 	{
 		fieldOverlay.setVisible(config.fieldOverlay);
+		statisticsOverlay.setVisible(config.statisticsOverlay);
 		foulListOverlay.setVisible(config.foulOverlay);
 		setShowNumPlayers(config.numberOfPlayers);
 		if (config.playerIDs)
@@ -193,6 +200,10 @@ public abstract class ViewerScreenBase
 			Team rt = viewer.getWorldModel().getRightTeam();
 			String s = formatNumTeamPlayers(rt);
 			tr.drawWithOutline(s, (int) (vp.w - tr.getBounds(s).getWidth() - 10), 10, Color.white, outlineColor);
+		}
+		// if live directing is enabled
+		if (liveDirecting) {
+			tr.drawWithOutline("LIVE", 20, vp.h - 90, Color.red, Color.white);
 		}
 		tr.endRendering();
 
@@ -302,6 +313,10 @@ public abstract class ViewerScreenBase
 			else
 				toggleBallTracker();
 			break;
+		case KeyEvent.VK_L:
+			if (e.isShiftDown())
+				toggleLiveDirecting();
+			break;
 		case KeyEvent.VK_F11:
 			if (!e.isControlDown())
 				viewer.toggleFullScreen();
@@ -360,6 +375,9 @@ public abstract class ViewerScreenBase
 		case KeyEvent.VK_Q:
 			toggleFouls();
 			break;
+		case KeyEvent.VK_U:
+			toggleStatistics();
+			break;
 		}
 	}
 
@@ -383,6 +401,12 @@ public abstract class ViewerScreenBase
 			return null;
 		}
 		return result;
+	}
+
+	private void toggleLiveDirecting()
+	{
+		liveDirecting = !liveDirecting;
+		System.out.println(liveDirecting ? "WE ARE LIVE!" : "LIVE IS OVER...");
 	}
 
 	private void togglePlayerTracker()
@@ -461,6 +485,13 @@ public abstract class ViewerScreenBase
 	{
 		foulListOverlay.setVisible(!foulListOverlay.isVisible());
 		textOverlays.add(new TextOverlay("Foul Overlay: " + (foulListOverlay.isVisible() ? "Enabled" : "Disabled"),
+				viewer.getWorldModel(), 100));
+	}
+
+	private void toggleStatistics()
+	{
+		statisticsOverlay.setVisible(!statisticsOverlay.isVisible());
+		textOverlays.add(new TextOverlay("Statistics Overlay: " + (statisticsOverlay.isVisible() ? "Enabled" : "Disabled"),
 				viewer.getWorldModel(), 100));
 	}
 
