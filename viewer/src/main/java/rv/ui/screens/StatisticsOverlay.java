@@ -22,6 +22,8 @@ import com.jogamp.opengl.util.awt.TextRenderer;
 import com.jogamp.opengl.util.gl2.GLUT;
 import java.awt.Font;
 import java.util.List;
+import java.util.Locale;
+
 import jsgl.jogl.view.Viewport;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
@@ -33,36 +35,73 @@ import rv.comm.rcssserver.GameState;
  */
 public class StatisticsOverlay extends ScreenBase
 {
-	private static final int FOUL_HEIGHT = 25;
-	private static final int FOUL_WIDTH = 235;
-	private static final float FOUL_SHOW_TIME = 8.0f;
-	private static final float FOUL_FADE_TIME = 2.0f;
+	private int CURRENT_SCREEN = 0;
+	private static final int BAR_HEIGHT = 24;
+	private static final int NAME_WIDTH = 220;
+	private static final int SCORE_BOX_WIDTH = 56;
+	private static final int Y_PAD = 4;
 	private static final int TOP_SCREEN_OFFSET = 17;
 	private static final int SIDE_SCREEN_OFFSET = 17;
+	private static final int INFO_WIDTH = NAME_WIDTH * 2;
 
-	private final TextRenderer tr;
+	private final TextRenderer tr1;
+	private final TextRenderer tr2;
 
 	private final Viewer viewer;
 
 	public StatisticsOverlay(Viewer viewer)
 	{
 		this.viewer = viewer;
-		tr = new TextRenderer(new Font("Arial", Font.PLAIN, 20), true, false);
+		tr1 = new TextRenderer(new Font("Arial", Font.PLAIN, 22), true, false);
+		tr2 = new TextRenderer(new Font("Arial", Font.PLAIN, 20), true, false);
 	}
 
 	void render(GL2 gl, GameState gs, int screenW, int screenH)
 	{
+		long currentTimeMillis = System.currentTimeMillis();
+		if (!shouldDisplayStatistics(currentTimeMillis)) {
+			return;
+		}
+
 		int y = screenH - TOP_SCREEN_OFFSET;
-		int x = screenW - FOUL_WIDTH - SIDE_SCREEN_OFFSET;
+		int x = screenW - INFO_WIDTH - SIDE_SCREEN_OFFSET;
+
+		String teamL = gs.getUIStringTeamLeft();
+		String teamR = gs.getUIStringTeamRight();
+
+		// truncate team names that are too long to fit within bounds
+		while (tr1.getBounds(teamL).getWidth() > NAME_WIDTH - 4)
+			teamL = teamL.substring(0, teamL.length() - 1);
+		while (tr1.getBounds(teamR).getWidth() > NAME_WIDTH - 4)
+			teamR = teamR.substring(0, teamR.length() - 1);
+
+		double lxpad = (NAME_WIDTH - tr1.getBounds(teamL).getWidth()) / 2;
+		double rxpad = (NAME_WIDTH - tr1.getBounds(teamR).getWidth()) / 2;
 
 		float[] lc = viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse();
 		float[] rc = viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse();
 
-		List<GameState.Foul> fouls = gs.getFouls();
-		float n = 1.0f;
+		gl.glBegin(GL2.GL_QUADS);
+		gl.glColor4f(0, 0, 0, 0.5f);
+		drawBox(gl, x - 3, y - 3, 2 * NAME_WIDTH + SCORE_BOX_WIDTH + 6, BAR_HEIGHT + 6);
+		drawBox(gl, x - 3, y - 3, 2 * NAME_WIDTH + SCORE_BOX_WIDTH + 6, BAR_HEIGHT * 0.6f);
 
+		gl.glColor4f(lc[0] * 0.8f, lc[1] * 0.8f, lc[2] * 0.8f, 0.65f);
+		drawBox(gl, x, y, NAME_WIDTH, BAR_HEIGHT);
+		gl.glColor4f(1, .3f, .3f, 0.65f);
+
+		gl.glColor4f(rc[0] * 0.8f, rc[1] * 0.8f, rc[2] * 0.8f, 0.65f);
+		drawBox(gl, x + NAME_WIDTH, y, NAME_WIDTH, BAR_HEIGHT);
+		gl.glEnd();
+
+		tr1.beginRendering(screenW, screenH);
+		tr1.draw(teamL, (int) (x + lxpad), y + Y_PAD);
+		tr1.draw(teamR, (int) (x + NAME_WIDTH + rxpad), y + Y_PAD);
+		tr1.endRendering();
+
+		float n = 1.0f;
 		float opacity = 1.0f;
-		drawFoul(gl, x, y - (int) (FOUL_HEIGHT * (n - 1)), FOUL_WIDTH, FOUL_HEIGHT, screenW, screenH,
+		drawFoul(gl, x, y - (int) (INFO_WIDTH * (n - 1)), INFO_WIDTH, INFO_WIDTH, screenW, screenH,
 				opacity, lc);
 	}
 
@@ -78,7 +117,6 @@ public class StatisticsOverlay extends ScreenBase
 		float[] cardFillColor = new float[] {0.8f, 0.6f, 0.0f, 1.0f};
 
 		cardFillColor[3] = opacity;
-		System.out.println(opacity);
 		teamColor[3] = opacity / 3;
 
 		gl.glBegin(GL2.GL_QUADS);
@@ -88,23 +126,29 @@ public class StatisticsOverlay extends ScreenBase
 		gl.glVertex2fv(new float[] {x + w, y - h}, 0);
 		gl.glVertex2fv(new float[] {x + 18, y - h}, 0);
 
-		float[][] vertices = {{x + 2, y - 1}, {x + 16, y - 3}, {x + 14, y - FOUL_HEIGHT + 1}, {x, y - FOUL_HEIGHT + 3}};
+		float[][] vertices = {{x + 2, y - 1}, {x + 16, y - 3}, {x + 14, y - INFO_WIDTH + 1}, {x, y - INFO_WIDTH + 3}};
 		gl.glColor4fv(cardFillColor, 0);
 		for (float[] vertex : vertices) {
 			gl.glVertex2fv(vertex, 0);
 		}
 		gl.glEnd();
 
-		tr.setColor(0.9f, 0.9f, 0.9f, opacity);
-		tr.beginRendering(screenW, screenH);
-		tr.draw("FOUL", x + 22, y - h + 4);
-		System.out.println("FOUL");
-		tr.endRendering();
+		tr2.setColor(0.9f, 0.9f, 0.9f, opacity);
+		tr2.beginRendering(screenW, screenH);
+		tr2.draw("FOUL", x + 22, y - h + 4);
+		tr2.endRendering();
 	}
 
-	public static boolean shouldDisplayFoul(GameState.Foul f, long currentTimeMillis)
+	public static boolean shouldDisplayStatistics(long currentTimeMillis)
 	{
-		float dt = (currentTimeMillis - f.receivedTime) / 1000.0f;
-		return dt < FOUL_SHOW_TIME + FOUL_FADE_TIME;
+		return true;
+	}
+
+	static void drawBox(GL2 gl, float x, float y, float w, float h)
+	{
+		gl.glVertex2f(x, y);
+		gl.glVertex2f(x + w, y);
+		gl.glVertex2f(x + w, y + h);
+		gl.glVertex2f(x, y + h);
 	}
 }

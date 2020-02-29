@@ -144,6 +144,7 @@ public class Configuration
 			getNextLine(in);
 			serverSpeed = getNextBool(in);
 			foulOverlay = getNextBool(in);
+			statisticsOverlay = getNextBool(in);
 			fieldOverlay = getNextBool(in);
 			numberOfPlayers = getNextBool(in);
 			playerIDs = getNextBool(in);
