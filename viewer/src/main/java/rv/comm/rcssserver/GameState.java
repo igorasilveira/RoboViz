@@ -17,6 +17,7 @@
 package rv.comm.rcssserver;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import rv.comm.rcssserver.ServerComm.ServerChangeListener;
@@ -76,6 +77,25 @@ public class GameState implements ServerChangeListener
 		}
 	}
 
+	public enum StatisticType {
+		OFFSIDE(0, "offside"),
+		FOUL(1, "foul");
+
+		private int index;
+		private String name;
+
+		StatisticType(int index, String name)
+		{
+			this.index = index;
+			this.name = name;
+		}
+
+		public String toString()
+		{
+			return name;
+		}
+	}
+
 	public static class Foul
 	{
 		public float time;
@@ -84,6 +104,21 @@ public class GameState implements ServerChangeListener
 		public int team;
 		public int agentID;
 		public long receivedTime;
+	}
+
+	public static class Statistic
+	{
+		public float time;
+		public int index;
+		public StatisticType type;
+		public int team;
+		public int agentID;
+		public long receivedTime;
+
+		public Statistic(float time) {
+			this.time = time;
+			this.receivedTime = System.currentTimeMillis();
+		}
 	}
 
 	public static class HistoryItem
@@ -178,6 +213,7 @@ public class GameState implements ServerChangeListener
 	private float time;
 	private int half;
 	private List<Foul> fouls = new CopyOnWriteArrayList<>();
+	private List<Statistic> statistics = new CopyOnWriteArrayList<>();
 
 	private final List<GameStateChangeListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -186,6 +222,10 @@ public class GameState implements ServerChangeListener
 	public boolean isInitialized()
 	{
 		return initialized;
+	}
+
+	public List<Statistic> getStatistics() {
+		return statistics;
 	}
 
 	public float getFieldLength()
@@ -405,6 +445,10 @@ public class GameState implements ServerChangeListener
 		}
 	}
 
+	private void addStatistic(Statistic statistic) {
+		statistics.add(statistic);
+	}
+
 	/**
 	 * Parses expression and updates state
 	 */
@@ -429,6 +473,8 @@ public class GameState implements ServerChangeListener
 
 			if (atoms != null) {
 				String atomName = atoms[0];
+
+				Statistic statistic = new Statistic(time);
 
 				switch (atomName) {
 				case FIELD_LENGTH:
@@ -529,9 +575,19 @@ public class GameState implements ServerChangeListener
 					foul.team = Integer.parseInt(atoms[3]);
 					foul.agentID = Integer.parseInt(atoms[4]);
 					foul.receivedTime = System.currentTimeMillis();
+					statistic.index = Integer.parseInt(atoms[1]);
+					statistic.type = StatisticType.FOUL;
+					statistic.team = Integer.parseInt(atoms[3]);
+					statistic.agentID = Integer.parseInt(atoms[4]);
 					addFoul(foul);
 					break;
+				case OFFSIDE_LEFT:
+				case OFFSIDE_RIGHT:
+				break;
 				}
+
+				if (statistic.type != null)
+					addStatistic(statistic);
 			}
 		}
 

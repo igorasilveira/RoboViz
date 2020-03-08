@@ -83,6 +83,7 @@ public class ServerComm implements DrawCommListener
 							parser.parse(message);
 							if (logfileOutput != null)
 								writeToLogfile(message);
+
 						} catch (ParseException e) {
 							e.printStackTrace();
 						}
@@ -164,6 +165,7 @@ public class ServerComm implements DrawCommListener
 	{
 		return world;
 	}
+
 
 	private void writeToLogfile(String msg)
 	{

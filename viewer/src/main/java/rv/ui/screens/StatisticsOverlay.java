@@ -176,7 +176,7 @@ public class StatisticsOverlay extends ScreenBase
 //		if (!gs.isInitialized()) return false;
 //		return true;
 		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
-		System.out.println(dt);
+//		System.out.println(dt);
 		return dt < PANEL_SHOW_TIME + PANEL_FADE_TIME;
 	}
 
