@@ -79,7 +79,12 @@ public class GameState implements ServerChangeListener
 
 	public enum StatisticType {
 		OFFSIDE(0, "offside"),
-		FOUL(1, "foul");
+		FOUL(1, "foul"),
+		FREE_KICK(2, "free_kick"),
+		CORNER(4, "corner"),
+		KICK_IN(5, "kick_in"),
+		GOAL_KICK(6, "goal_kick"),
+		PASS(7, "pass");
 
 		private int index;
 		private String name;
@@ -227,6 +232,8 @@ public class GameState implements ServerChangeListener
 	public List<Statistic> getStatistics() {
 		return statistics;
 	}
+
+	public void clearStatistics() { statistics.clear(); }
 
 	public float getFieldLength()
 	{
@@ -446,7 +453,17 @@ public class GameState implements ServerChangeListener
 	}
 
 	private void addStatistic(Statistic statistic) {
-		statistics.add(statistic);
+		boolean alreadyHaveStatistic = false;
+		for (Statistic s : statistics) {
+			if (s.type == statistic.type && s.team == statistic.team && s.agentID == statistic.agentID &&
+					Math.abs(statistic.time - s.time) < 1.0) {
+				alreadyHaveStatistic = true;
+				break;
+			}
+		}
+		if (!alreadyHaveStatistic) {
+			statistics.add(statistic);
+		}
 	}
 
 	/**
@@ -549,6 +566,83 @@ public class GameState implements ServerChangeListener
 				case PLAY_MODE:
 					int mode = Integer.parseInt(atoms[1]);
 					playMode = playModes[mode];
+
+					switch (playMode) {
+						case OFFSIDE_LEFT:
+							statistic.type = StatisticType.OFFSIDE;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("OFFSIDE 1" + Arrays.toString(atoms));
+							break;
+						case OFFSIDE_RIGHT:
+							statistic.type = StatisticType.OFFSIDE;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("OFFSIDE 2" + Arrays.toString(atoms));
+							break;
+						case KICK_IN_LEFT:
+							statistic.type = StatisticType.KICK_IN;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("KICK_IN 1" + Arrays.toString(atoms));
+							break;
+						case KICK_IN_RIGHT:
+							statistic.type = StatisticType.KICK_IN;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("KICK_IN 2" + Arrays.toString(atoms));
+							break;
+						case GOAL_KICK_LEFT:
+							statistic.type = StatisticType.GOAL_KICK;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("GOAL_KICK 1" + Arrays.toString(atoms));
+							break;
+						case GOAL_KICK_RIGHT:
+							statistic.type = StatisticType.GOAL_KICK;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("GOAL_KICK 2" + Arrays.toString(atoms));
+							break;
+						case PASS_LEFT:
+							statistic.type = StatisticType.PASS;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("PASS 1 " + Arrays.toString(atoms));
+							break;
+						case PASS_RIGHT:
+							statistic.type = StatisticType.PASS;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("PASS 2 " + Arrays.toString(atoms));
+							break;
+						case FREE_KICK_LEFT:
+						case DIRECT_FREE_KICK_LEFT:
+							statistic.type = StatisticType.FREE_KICK;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("FREE KICK 1 " + Arrays.toString(atoms));
+							break;
+						case FREE_KICK_RIGHT:
+						case DIRECT_FREE_KICK_RIGHT:
+							statistic.type = StatisticType.FREE_KICK;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("FREE KICK 2 " + Arrays.toString(atoms));
+							break;
+						case CORNER_KICK_LEFT:
+							statistic.type = StatisticType.CORNER;
+							statistic.team = 1;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("CORNER 1 " + Arrays.toString(atoms));
+							break;
+						case CORNER_KICK_RIGHT:
+							statistic.type = StatisticType.CORNER;
+							statistic.team = 2;
+							statistic.index = Integer.parseInt(atoms[1]);
+							System.out.println("CORNER 2 " + Arrays.toString(atoms));
+							break;
+					}
 					playStateChanges++;
 					break;
 				case TEAM_LEFT:
@@ -581,9 +675,6 @@ public class GameState implements ServerChangeListener
 					statistic.agentID = Integer.parseInt(atoms[4]);
 					addFoul(foul);
 					break;
-				case OFFSIDE_LEFT:
-				case OFFSIDE_RIGHT:
-				break;
 				}
 
 				if (statistic.type != null)
