@@ -18,6 +18,8 @@ package rv.comm.rcssserver;
 
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
+
 import rv.comm.rcssserver.scenegraph.SceneGraph;
 import rv.comm.rcssserver.scenegraph.SceneGraphHeader;
 import rv.world.WorldModel;

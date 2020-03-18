@@ -1,5 +1,8 @@
 package rv.ui.screens;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Displays the statistics overlay.
  *
@@ -7,27 +10,27 @@ package rv.ui.screens;
  */
 
 public class StatisticsPanel {
-	private String[] titles;
-	private String[][] values;
+	private ArrayList<String> titles;
+	private ArrayList<List<String>> values;
 
-	public StatisticsPanel(String[] titles, String[][] values) {
+	public StatisticsPanel(ArrayList<String> titles, ArrayList<List<String>> values) {
 		this.titles = titles;
 		this.values = values;
 	}
 
-	public String[] getTitles() {
+	public ArrayList<String> getTitles() {
 		return titles;
 	}
 
-	public void setTitles(String[] titles) {
+	public void setTitles(ArrayList<String> titles) {
 		this.titles = titles;
 	}
 
-	public String[][] getValues() {
+	public ArrayList<List<String>> getValues() {
 		return values;
 	}
 
-	public void setValues(String[][] values) {
+	public void setValues(ArrayList<List<String>> values) {
 		this.values = values;
 	}
 }

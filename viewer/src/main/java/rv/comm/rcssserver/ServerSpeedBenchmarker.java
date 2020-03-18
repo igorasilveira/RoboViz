@@ -113,7 +113,7 @@ public class ServerSpeedBenchmarker implements ServerMessageReceivedListener, Se
 	}
 
 	@Override
-	public void gsServerMessageReceived(GameState gs)
+	public void gsServerMessageReceived(GameState gs, SExp exp)
 	{
 		if (USE_NANOS) {
 			msgTime = System.nanoTime();

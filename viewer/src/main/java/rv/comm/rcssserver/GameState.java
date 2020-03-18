@@ -46,7 +46,7 @@ public class GameState implements ServerChangeListener
 
 	public interface ServerMessageReceivedListener {
 		/** Called when a valid message from the server is received */
-		void gsServerMessageReceived(GameState gs);
+		void gsServerMessageReceived(GameState gs, SExp exp);
 
 		/** Called after a message from the server has been processed (parsed) */
 		void gsServerMessageProcessed(GameState gs);
@@ -77,30 +77,6 @@ public class GameState implements ServerChangeListener
 		}
 	}
 
-	public enum StatisticType {
-		OFFSIDE(0, "offside"),
-		FOUL(1, "foul"),
-		FREE_KICK(2, "free_kick"),
-		CORNER(4, "corner"),
-		KICK_IN(5, "kick_in"),
-		GOAL_KICK(6, "goal_kick"),
-		PASS(7, "pass");
-
-		private int index;
-		private String name;
-
-		StatisticType(int index, String name)
-		{
-			this.index = index;
-			this.name = name;
-		}
-
-		public String toString()
-		{
-			return name;
-		}
-	}
-
 	public static class Foul
 	{
 		public float time;
@@ -109,21 +85,6 @@ public class GameState implements ServerChangeListener
 		public int team;
 		public int agentID;
 		public long receivedTime;
-	}
-
-	public static class Statistic
-	{
-		public float time;
-		public int index;
-		public StatisticType type;
-		public int team;
-		public int agentID;
-		public long receivedTime;
-
-		public Statistic(float time) {
-			this.time = time;
-			this.receivedTime = System.currentTimeMillis();
-		}
 	}
 
 	public static class HistoryItem
@@ -218,7 +179,6 @@ public class GameState implements ServerChangeListener
 	private float time;
 	private int half;
 	private List<Foul> fouls = new CopyOnWriteArrayList<>();
-	private List<Statistic> statistics = new CopyOnWriteArrayList<>();
 
 	private final List<GameStateChangeListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -228,12 +188,6 @@ public class GameState implements ServerChangeListener
 	{
 		return initialized;
 	}
-
-	public List<Statistic> getStatistics() {
-		return statistics;
-	}
-
-	public void clearStatistics() { statistics.clear(); }
 
 	public float getFieldLength()
 	{
@@ -409,9 +363,14 @@ public class GameState implements ServerChangeListener
 		fouls = new CopyOnWriteArrayList<>();
 	}
 
+	public boolean isPlaying()
+	{
+		return PLAY_ON.equals(playMode) || PASS_LEFT.equals(playMode) || PASS_RIGHT.equals(playMode);
+	}
+
 	private boolean isTimeStopped()
 	{
-		return "BeforeKickOff".equals(playMode) || "GameOver".equals(playMode);
+		return BEFORE_KICK_OFF.equals(playMode) || GAME_OVER.equals(playMode);
 	}
 
 	private void removeExpiredFouls()
@@ -452,20 +411,6 @@ public class GameState implements ServerChangeListener
 		}
 	}
 
-	private void addStatistic(Statistic statistic) {
-		boolean alreadyHaveStatistic = false;
-		for (Statistic s : statistics) {
-			if (s.type == statistic.type && s.team == statistic.team && s.agentID == statistic.agentID &&
-					Math.abs(statistic.time - s.time) < 1.0) {
-				alreadyHaveStatistic = true;
-				break;
-			}
-		}
-		if (!alreadyHaveStatistic) {
-			statistics.add(statistic);
-		}
-	}
-
 	/**
 	 * Parses expression and updates state
 	 */
@@ -475,7 +420,7 @@ public class GameState implements ServerChangeListener
 			return;
 
 		for (ServerMessageReceivedListener l : smListeners) {
-			l.gsServerMessageReceived(this);
+			l.gsServerMessageReceived(this, exp);
 		}
 
 		int measureOrRuleChanges = 0;
@@ -490,8 +435,6 @@ public class GameState implements ServerChangeListener
 
 			if (atoms != null) {
 				String atomName = atoms[0];
-
-				Statistic statistic = new Statistic(time);
 
 				switch (atomName) {
 				case FIELD_LENGTH:
@@ -566,83 +509,6 @@ public class GameState implements ServerChangeListener
 				case PLAY_MODE:
 					int mode = Integer.parseInt(atoms[1]);
 					playMode = playModes[mode];
-
-					switch (playMode) {
-						case OFFSIDE_LEFT:
-							statistic.type = StatisticType.OFFSIDE;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("OFFSIDE 1" + Arrays.toString(atoms));
-							break;
-						case OFFSIDE_RIGHT:
-							statistic.type = StatisticType.OFFSIDE;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("OFFSIDE 2" + Arrays.toString(atoms));
-							break;
-						case KICK_IN_LEFT:
-							statistic.type = StatisticType.KICK_IN;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("KICK_IN 1" + Arrays.toString(atoms));
-							break;
-						case KICK_IN_RIGHT:
-							statistic.type = StatisticType.KICK_IN;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("KICK_IN 2" + Arrays.toString(atoms));
-							break;
-						case GOAL_KICK_LEFT:
-							statistic.type = StatisticType.GOAL_KICK;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL_KICK 1" + Arrays.toString(atoms));
-							break;
-						case GOAL_KICK_RIGHT:
-							statistic.type = StatisticType.GOAL_KICK;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL_KICK 2" + Arrays.toString(atoms));
-							break;
-						case PASS_LEFT:
-							statistic.type = StatisticType.PASS;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("PASS 1 " + Arrays.toString(atoms));
-							break;
-						case PASS_RIGHT:
-							statistic.type = StatisticType.PASS;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("PASS 2 " + Arrays.toString(atoms));
-							break;
-						case FREE_KICK_LEFT:
-						case DIRECT_FREE_KICK_LEFT:
-							statistic.type = StatisticType.FREE_KICK;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("FREE KICK 1 " + Arrays.toString(atoms));
-							break;
-						case FREE_KICK_RIGHT:
-						case DIRECT_FREE_KICK_RIGHT:
-							statistic.type = StatisticType.FREE_KICK;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("FREE KICK 2 " + Arrays.toString(atoms));
-							break;
-						case CORNER_KICK_LEFT:
-							statistic.type = StatisticType.CORNER;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("CORNER 1 " + Arrays.toString(atoms));
-							break;
-						case CORNER_KICK_RIGHT:
-							statistic.type = StatisticType.CORNER;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("CORNER 2 " + Arrays.toString(atoms));
-							break;
-					}
 					playStateChanges++;
 					break;
 				case TEAM_LEFT:
@@ -669,16 +535,9 @@ public class GameState implements ServerChangeListener
 					foul.team = Integer.parseInt(atoms[3]);
 					foul.agentID = Integer.parseInt(atoms[4]);
 					foul.receivedTime = System.currentTimeMillis();
-					statistic.index = Integer.parseInt(atoms[1]);
-					statistic.type = StatisticType.FOUL;
-					statistic.team = Integer.parseInt(atoms[3]);
-					statistic.agentID = Integer.parseInt(atoms[4]);
 					addFoul(foul);
 					break;
 				}
-
-				if (statistic.type != null)
-					addStatistic(statistic);
 			}
 		}
 

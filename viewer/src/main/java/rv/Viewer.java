@@ -391,6 +391,7 @@ public class Viewer
 	{
 		String s = Calendar.getInstance().getTime().toString();
 		s = s.replaceAll("[\\s:]+", "_");
+		s = s.replaceAll("[\\s:]+", "_");
 		ssName = String.format(Locale.US, "screenshots/%s_%s.png", "roboviz", s);
 	}
 
