@@ -166,7 +166,6 @@ public class ServerComm implements DrawCommListener
 		return world;
 	}
 
-
 	private void writeToLogfile(String msg)
 	{
 		synchronized (this)

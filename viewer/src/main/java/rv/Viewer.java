@@ -222,8 +222,8 @@ public class Viewer
 	{
 		StringArgument logFileArgument = new StringArgument("logFile", null);
 		BooleanArgument logModeArgument = new BooleanArgument("logMode");
-		//TODO
-		StringArgument serverHostArgument = new StringArgument("serverHost", "192.168.1.114");
+		// TODO
+		StringArgument serverHostArgument = new StringArgument("serverHost", "192.168.1.115");
 		IntegerArgument serverPortArgument = new IntegerArgument("serverPort", null, 1, 65535);
 		StringArgument drawingFilterArgument = new StringArgument("drawingFilter", ".*");
 

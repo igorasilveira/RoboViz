@@ -133,7 +133,8 @@ public abstract class ViewerScreenBase
 
 	private void createCameraMenu(Menu menu)
 	{
-		menu.addItem("Live Directing", KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.SHIFT_MASK), this::toggleLiveDirecting);
+		menu.addItem("Live Directing", KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.SHIFT_MASK),
+				this::toggleLiveDirecting);
 		menu.addItem("Track Ball", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), this::toggleBallTracker);
 		menu.addItem("Track Player", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, KeyEvent.SHIFT_MASK),
 				this::togglePlayerTracker);
@@ -491,8 +492,9 @@ public abstract class ViewerScreenBase
 	private void toggleStatistics()
 	{
 		statisticsOverlay.setVisible(!statisticsOverlay.isVisible());
-		textOverlays.add(new TextOverlay("Statistics Overlay: " + (statisticsOverlay.isVisible() ? "Enabled" : "Disabled"),
-				viewer.getWorldModel(), 100));
+		textOverlays.add(
+				new TextOverlay("Statistics Overlay: " + (statisticsOverlay.isVisible() ? "Enabled" : "Disabled"),
+						viewer.getWorldModel(), 100));
 	}
 
 	private void setShowNumPlayers(boolean showNumPlayers)

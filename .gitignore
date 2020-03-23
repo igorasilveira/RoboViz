@@ -24,3 +24,4 @@ roboviz.bat
 
 /viewer/bin
 /viewer/build
+.clang-format
