@@ -31,6 +31,7 @@ import jsgl.math.vector.Vec3f;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
 import rv.comm.rcssserver.SExp;
+import rv.util.MatrixUtil;
 import rv.util.jogl.VectorUtil;
 import rv.world.Team;
 import rv.world.WorldModel;
@@ -47,7 +48,8 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		KICK_IN(5, "kick_in"),
 		GOAL_KICK(6, "goal_kick"),
 		PASS(7, "pass"),
-		POSSESSION(8, "possession");
+		DRIBLE(8, "drible"),
+		POSSESSION(9, "possession");
 
 		private int index;
 		private String name;
@@ -100,13 +102,29 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 	private static final float PANEL_SHOW_TIME = 8.0f;
 	private static final float PANEL_FADE_TIME = 2.0f;
 
+	private boolean isInitialized = false;
+
+	// Heat map structures
+	private float[][] ballPositions;
+
 	// Kick detection variables
 	// Refactor into a module
 
+	private boolean prevLeftTeamPossession = true;
+	private int prevAgentId = -1;
 	private Vec3f prevBallPosition;
 	private Vec3f prevBallVelocity;
 	private float velocityDeltaTrigger = 0.01f;
 	private float degreeDeltaTrigger = 3f;
+
+	private float kickTimeGap = 2f;
+	private float kickTimeDelta = 0f;
+
+	private float dribleTimeGap = 3f;
+	private float dribleTimeDelta = 0f;
+
+	private float positionStoreGap = 5f;
+	private float positionStoreDelta = 0f;
 
 	// End of kick detection variables
 
@@ -128,18 +146,25 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 	public StatisticsOverlay(Viewer viewer)
 	{
 		this.viewer = viewer;
+
 		time = 0;
+		prevTime = 0;
+
 		prevBallPosition = new Vec3f(0, 0, 0);
 		prevBallVelocity = new Vec3f(0, 0, 0);
+
 		viewer.getWorldModel().getGameState().addListener((GameState.ServerMessageReceivedListener) this);
+
 		tr1 = new TextRenderer(new Font("Arial", Font.PLAIN, 22), true, false);
 		tr2 = new TextRenderer(new Font("Arial", Font.PLAIN, 20), true, false);
+
 		DEPLOY_TIME = (long) (System.currentTimeMillis() + 10 * 1000.f);
 	}
 
 	void render(GL2 gl, GameState gs, int screenW, int screenH)
 	{
 		long currentTimeMillis = System.currentTimeMillis();
+
 		if (!shouldDisplayStatistics(currentTimeMillis, gs)) {
 			return;
 		}
@@ -173,7 +198,7 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Offside
 		List<StatisticsOverlay.Statistic> offsideStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.OFFSIDE))
+						.filter(statistic -> statistic.type.equals(StatisticType.OFFSIDE))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftOffsideStatistics =
@@ -182,7 +207,7 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Foul
 		List<StatisticsOverlay.Statistic> foulStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.FOUL))
+						.filter(statistic -> statistic.type.equals(StatisticType.FOUL))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftFoulStatistics =
@@ -191,7 +216,7 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Corner
 		List<StatisticsOverlay.Statistic> cornerStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.CORNER))
+						.filter(statistic -> statistic.type.equals(StatisticType.CORNER))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftCornerStatistics =
@@ -200,7 +225,7 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Free Kick
 		List<StatisticsOverlay.Statistic> freeKickStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.FREE_KICK))
+						.filter(statistic -> statistic.type.equals(StatisticType.FREE_KICK))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftFreeKickStatistics =
@@ -209,7 +234,7 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Pass
 		List<StatisticsOverlay.Statistic> passStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.PASS))
+						.filter(statistic -> statistic.type.equals(StatisticType.PASS))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftPassStatistics =
@@ -218,23 +243,32 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		// Goal Kick
 		List<StatisticsOverlay.Statistic> goalKickStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.GOAL_KICK))
+						.filter(statistic -> statistic.type.equals(StatisticType.GOAL_KICK))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftGoalKickStatistics =
 				goalKickStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
-		// Goal Kick
+		// Kick In
 		List<StatisticsOverlay.Statistic> kickInStatistics =
 				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticsOverlay.StatisticType.KICK_IN))
+						.filter(statistic -> statistic.type.equals(StatisticType.KICK_IN))
 						.collect(Collectors.toList());
 
 		List<StatisticsOverlay.Statistic> leftKickInStatistics =
 				kickInStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
-		ArrayList<String> titlesOne =
-				new ArrayList<>(Arrays.asList("Fouls", "Offsides", "Corners", "Free kicks", "Goal Kicks", "Kick ins"));
+		// Dribles
+		List<StatisticsOverlay.Statistic> dribleStatistics =
+				statistics.stream()
+						.filter(statistic -> statistic.type.equals(StatisticType.DRIBLE))
+						.collect(Collectors.toList());
+
+		List<StatisticsOverlay.Statistic> leftDribleStatistics =
+				dribleStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
+
+		ArrayList<String> titlesOne = new ArrayList<>(
+				Arrays.asList("Fouls", "Offsides", "Corners", "Free kicks", "Goal Kicks", "Kick ins", "Dribles"));
 		ArrayList<List<String>> valuesOne = new ArrayList<>();
 
 		valuesOne.add(Arrays.asList(String.valueOf(leftFoulStatistics.size()),
@@ -249,6 +283,8 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 				String.valueOf(goalKickStatistics.size() - leftGoalKickStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftKickInStatistics.size()),
 				String.valueOf(kickInStatistics.size() - leftKickInStatistics.size())));
+		valuesOne.add(Arrays.asList(String.valueOf(leftDribleStatistics.size()),
+				String.valueOf(dribleStatistics.size() - leftDribleStatistics.size())));
 
 		if (possessionStatistics.size() > 0) {
 			float totalSize = (float) possessionStatistics.size();
@@ -481,12 +517,36 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		try {
 			detectPossession(gs, world);
 			detectKick(gs, world);
+			storePositions(gs, world);
 
+			System.out.println(ball.getPosition());
 			prevBallVelocity =
 					VectorUtil.calculateVelocity(ball.getPosition().minus(prevBallPosition), time - prevTime);
 			prevBallPosition = ball.getPosition();
+			prevAgentId = agentId;
+			prevLeftTeamPossession = leftTeamPossession;
+
+			float cycleTime = time - prevTime;
+
+			dribleTimeDelta += cycleTime;
+			kickTimeDelta += cycleTime;
+			positionStoreDelta += cycleTime;
 		} catch (NullPointerException e) {
 			System.err.println("Initializing statistics");
+		}
+	}
+
+	private void storePositions(GameState gs, WorldModel world)
+	{
+		Ball ball = world.getBall();
+		Team leftTeam = world.getLeftTeam();
+		Team rightTeam = world.getRightTeam();
+
+		if (positionStoreDelta >= positionStoreGap) {
+			//			ballPositions[(int) ball.getPosition().x][(int) ball.getPosition().y] = 1f;
+			//			MatrixUtil.print2D(ballPositions);
+
+			positionStoreDelta = 0;
 		}
 	}
 
@@ -504,8 +564,12 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 		if (((velocityDelta.length() < 0 && Math.abs(velocityDelta.length()) > velocityDeltaTrigger) ||
 					Math.abs(VectorUtil.calculateAngle(prevBallVelocity, currentBallVelocity)) > degreeDeltaTrigger) &&
 				prevTime < time) {
-			System.out.println("KICK " + Math.abs(velocityDelta.length()));
-			System.out.println("Agent " + agentId + " of team " + (leftTeamPossession ? "LEFT" : "RIGHT"));
+			// Drible detection
+			if (leftTeamPossession == prevLeftTeamPossession && agentId == prevAgentId && prevTime < time &&
+					dribleTimeDelta >= dribleTimeGap) {
+				this.addStatistic(new Statistic(time, StatisticType.DRIBLE, leftTeamPossession ? 1 : 2, agentId));
+				dribleTimeDelta = 0;
+			}
 		}
 
 		//            if (prevBallPosition.minus(ball.getPosition()).length() < 0.01f) {
@@ -548,12 +612,29 @@ public class StatisticsOverlay extends ScreenBase implements GameState.ServerMes
 	{
 		synchronized (this)
 		{
-			if (!gs.isInitialized() || !gs.isPlaying())
+			if (!gs.isInitialized())
+				return;
+
+			if (!isInitialized)
+				initializeMaps();
+
+			if (!gs.isPlaying())
 				return;
 
 			parsePlayModeStatistics(gs, exp);
 			calculateStateStatistics(gs);
 		}
+	}
+
+	private void initializeMaps()
+	{
+		GameState gs = this.viewer.getWorldModel().getGameState();
+		int fieldLength = (int) gs.getFieldLength();
+		int fieldWidth = (int) gs.getFieldWidth();
+
+		ballPositions = new float[fieldWidth][fieldLength];
+
+		isInitialized = true;
 	}
 
 	@Override
