@@ -11,6 +11,26 @@ import java.util.List;
 
 public class StatisticsPanel
 {
+	public enum PanelType {
+		EVENTS(0, "events"),
+		POSSESSION(0, "possession"),
+		HEAT_MAP(1, "heat_map");
+
+		private int index;
+		private String name;
+
+		PanelType(int index, String name)
+		{
+			this.index = index;
+			this.name = name;
+		}
+
+		public String toString()
+		{
+			return name;
+		}
+	}
+
 	private ArrayList<String> titles;
 	private ArrayList<List<String>> values;
 
