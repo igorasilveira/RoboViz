@@ -24,11 +24,13 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import jsgl.jogl.view.Viewport;
 import jsgl.math.vector.Vec2f;
 import jsgl.math.vector.Vec3f;
+import rv.Configuration;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
 import rv.comm.rcssserver.SExp;
@@ -53,7 +55,9 @@ public class StatisticsOverlay
 		PASS(7, "pass"),
 		DRIBLE(8, "drible"),
 		POSSESSION(9, "possession"),
-		GOAL(10, "goal");
+		SHOT(10, "shot"),
+		SHOT_TARGET(11, "shot_target"),
+		GOAL(12, "goal");
 
 		private int index;
 		private String name;
@@ -94,9 +98,22 @@ public class StatisticsOverlay
 		}
 	}
 
+	public static class PossessionStatistic
+	{
+		public float time;
+		public float leftPossession;
+
+		public PossessionStatistic(float time, float leftPossession)
+		{
+			this.time = time;
+			this.leftPossession = leftPossession;
+		}
+	}
+
 	private float fieldWidth = 180;
 	private float fieldLength = 120;
 	private float screenWidth = 1;
+	private float screenHeight = 1;
 	private static final float fieldOverlayWidthFactor = 0.3f;
 	private int CURRENT_SCREEN = 0;
 	private static long DEPLOY_TIME = 0;
@@ -116,9 +133,9 @@ public class StatisticsOverlay
 	// TIMELINE
 
 	private static final float TOTAL_GAME_TIME = 600;
-	private static final float timelineWidthFactor = 0.04f;
-	private static final float timelineHeightFactor = 0.9f;
-	private static final float TIME_LINE_TIME_BAR_WIDTH = 5;
+	private static final float timelineWidthFactor = 0.5f;
+	private static final float timelineHeightFactor = 0.07f;
+	private static final float TIME_LINE_TIME_BAR_WIDTH = 4;
 	private static final float TIME_LINE_EVENT_BAR_WIDTH = 15;
 	private static final int TIME_LINE_END_HEIGHT = 5;
 	private int timelineY = 400;
@@ -135,11 +152,15 @@ public class StatisticsOverlay
 	private int positionsCount = 0;
 	private int heatMapY = 300;
 
+	private float possessionStoreGap = 1f;
+	private float possessionStoreDelta = 0f;
+	private float possessionGraphGap = 5f;
+	private float possessionGraphDelta = 0f;
+
 	// Kick detection variables
 	// Refactor into a module
 
-	private boolean prevLeftTeamPossession = true;
-	private int prevAgentId = -1;
+	private Agent prevAgent = null;
 	private Vec3f prevBallPosition;
 	private Vec3f prevBallVelocity;
 	private float velocityDeltaTrigger = 0.01f;
@@ -148,22 +169,27 @@ public class StatisticsOverlay
 	private float kickTimeGap = 2f;
 	private float kickTimeDelta = 0f;
 
-	private float dribleTimeGap = 3f;
+	private float dribleTimeGap = 2f;
 	private float dribleTimeDelta = 0f;
 	private int dribleMinTouches = 2;
 	private int prevDribleTouches = 0;
 
 	// End of kick detection variables
 
+	// Graph variable
+	private final int GRAPH_WIDTH = 400;
+	private final int GRAPH_HEIGHT = 250;
+	private final int GRAPH_PADDING = 20;
+
 	private float time;
 	private float prevTime;
 
 	// Global cycle variables
-	private boolean leftTeamPossession = true;
-	private int agentId = -1;
+	private Agent agent = null;
 
 	private StatisticsPanel[] panels;
 	private List<Statistic> statistics = new CopyOnWriteArrayList<>();
+	private List<PossessionStatistic> possessionValuesOverTime = new CopyOnWriteArrayList<>();
 
 	private final TextRenderer tr1;
 	private final TextRenderer tr2;
@@ -204,60 +230,192 @@ public class StatisticsOverlay
 			return;
 		}
 
-		buildPanels(statistics);
-		//		gs.clearStatistics();
+		parseStatistics();
+		buildPanels();
+		//				gs.clearStatistics();
 
 		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
 		float opacity = dt > PANEL_SHOW_TIME ? 1.0f - (dt - PANEL_SHOW_TIME) / PANEL_FADE_TIME : 1.0f;
-		//		drawPanel(gl, gs, screenW, screenH, n, opacity);
+		drawPanel(gl, gs, screenW, screenH, n, opacity);
 		//		drawHeatMap(gl, glu, vp);
+		//		drawPossessionGraph(gl, glu, vp);
 		n += opacity;
+	}
+
+	private void drawPossessionGraph(GL2 gl, GLU glu, Viewport vp)
+	{
+		if (possessionValuesOverTime.isEmpty())
+			return;
+
+		int bottomLeftX = (int) (screenWidth - Y_PAD - GRAPH_WIDTH);
+		int bottomLeftY = (int) (screenHeight - 100 - GRAPH_HEIGHT);
+
+		int pSize = (int) (screenWidth * 0.003);
+
+		gl.glBegin(GL2.GL_QUADS);
+		// Background
+		gl.glColor4f(0.8f, 0.8f, 0.8f, 0.1f);
+		drawBox(gl, bottomLeftX, bottomLeftY, GRAPH_WIDTH, GRAPH_HEIGHT);
+		gl.glEnd();
+
+		// TITLE
+		int titleY = (int) (bottomLeftY + GRAPH_HEIGHT - Y_PAD - tr1.getBounds("Possession History").getHeight());
+		tr1.beginRendering((int) screenWidth, (int) screenHeight);
+		tr1.draw("Possession History",
+				(int) (bottomLeftX + GRAPH_WIDTH / 2 - tr1.getBounds("Possession History").getWidth() / 2), titleY);
+		tr1.endRendering();
+
+		// INTERNAL WINDOW
+		int graphBottomLeftX = bottomLeftX + GRAPH_PADDING;
+		int graphBottomLeftY = bottomLeftY + GRAPH_PADDING;
+		int graphTopRightX = graphBottomLeftX + GRAPH_WIDTH - GRAPH_PADDING * 2;
+		int graphTopRightY = graphBottomLeftY +
+							 (int) (GRAPH_HEIGHT - tr1.getBounds("Possession History").getHeight() - GRAPH_PADDING * 2);
+		int localGraphWidth = graphTopRightX - graphBottomLeftX;
+		int localGraphHeight = graphTopRightY - graphBottomLeftY;
+
+		gl.glBegin(GL2.GL_QUADS);
+		gl.glColor4f(0, 0, 0, 0.2f);
+		drawBox(gl, graphBottomLeftX, graphBottomLeftY, localGraphWidth, localGraphHeight);
+		gl.glEnd();
+
+		for (int i = 0; i < possessionValuesOverTime.size(); i++) {
+			PossessionStatistic statistic = possessionValuesOverTime.get(i);
+
+			gl.glEnable(GL2.GL_POINT_SMOOTH);
+			gl.glPointSize(pSize);
+			gl.glBegin(GL2.GL_POINTS);
+
+			// Left team
+			gl.glColor3fv(viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse(), 0);
+			gl.glVertex3f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth,
+					graphBottomLeftY + statistic.leftPossession * localGraphHeight, 0);
+
+			gl.glEnd();
+
+			if (i > 0) {
+				PossessionStatistic prevStatistic = possessionValuesOverTime.get(i - 1);
+
+				gl.glColor3fv(viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse(), 0);
+				gl.glLineWidth(2);
+
+				gl.glBegin(GL2.GL_LINES);
+				gl.glVertex3f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + prevStatistic.leftPossession * localGraphHeight, 0);
+
+				gl.glVertex3f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + statistic.leftPossession * localGraphHeight, 0);
+				gl.glEnd();
+
+				// LEFT TEAM AREA CHART
+				gl.glBegin(GL2.GL_QUADS);
+
+				gl.glColor4f(viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[0],
+						viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[1],
+						viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[2], 0.5f);
+
+				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + prevStatistic.leftPossession * localGraphHeight);
+
+				gl.glVertex2f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + statistic.leftPossession * localGraphHeight);
+
+				gl.glVertex2f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth, graphBottomLeftY);
+
+				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth, graphBottomLeftY);
+				gl.glEnd();
+
+				// RIGHT TEAM AREA CHART
+				gl.glBegin(GL2.GL_QUADS);
+
+				gl.glColor4f(viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[0],
+						viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[1],
+						viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[2], 0.5f);
+
+				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + prevStatistic.leftPossession * localGraphHeight);
+
+				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth, graphTopRightY);
+
+				gl.glVertex2f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth, graphTopRightY);
+
+				gl.glVertex2f(graphBottomLeftX + (statistic.time / 600) * localGraphWidth,
+						graphBottomLeftY + statistic.leftPossession * localGraphHeight);
+				gl.glEnd();
+			}
+
+			gl.glLineWidth(2);
+
+			gl.glBegin(GL2.GL_LINES);
+			gl.glColor4f(1f, 1f, 1f, 0.2f);
+			gl.glVertex3f(graphBottomLeftX, graphBottomLeftY + 0.5f * localGraphHeight, 0);
+
+			gl.glVertex3f(graphBottomLeftX + localGraphWidth, graphBottomLeftY + 0.5f * localGraphHeight, 0);
+			gl.glEnd();
+		}
+	}
+
+	private void parseStatistics()
+	{
+		// Possession
+		if (possessionGraphDelta >= possessionGraphGap) {
+			List<StatisticsOverlay.Statistic> possessionStatistics =
+					statistics.stream()
+							.filter(statistic -> statistic.type.equals(StatisticType.POSSESSION))
+							.collect(Collectors.toList());
+
+			List<StatisticsOverlay.Statistic> leftPossessionStatistics =
+					possessionStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
+
+			if (possessionStatistics.size() > 0) {
+				float totalSize = (float) possessionStatistics.size();
+				float leftPossession = leftPossessionStatistics.size() / totalSize;
+
+				possessionValuesOverTime.add(new PossessionStatistic(time, leftPossession));
+			}
+
+			possessionGraphDelta = 0;
+		}
 	}
 
 	private void drawTimeLine(GL2 gl, GLU glu, Viewport vp, GameState gs)
 	{
 		int timelineTotalWidth = (int) (vp.w * timelineWidthFactor);
 		int timelineTotalHeight = (int) (vp.h * timelineHeightFactor) - TIME_LINE_END_HEIGHT;
-		float padding = (vp.h * (1f - timelineHeightFactor) / 2);
+		float padding = vp.h * timelineHeightFactor;
 		Vec2f leftBottom = new Vec2f(screenWidth - padding - timelineTotalWidth, padding);
 		Vec2f leftTop = new Vec2f(leftBottom.x, leftBottom.y + timelineTotalHeight);
 		Vec2f rightBottom = new Vec2f(leftBottom.x + timelineTotalWidth, leftBottom.y);
 		Vec2f rightTop = new Vec2f(leftBottom.x + timelineTotalWidth, leftBottom.y + timelineTotalHeight);
 
 		gl.glBegin(GL2.GL_QUADS);
+		// Background
+		gl.glColor4f(1f, 1f, 1f, 0.1f);
+		drawBox(gl, leftBottom.x, leftBottom.y, rightBottom.x - leftBottom.x, leftTop.y - leftBottom.y);
+
 		gl.glColor4f(0.1f, 0.1f, 0.1f, 0.9f);
 
-		// Ends
-		drawBox(gl, leftBottom.x, leftBottom.y, timelineTotalWidth, TIME_LINE_END_HEIGHT);
-		drawBox(gl, leftTop.x, leftTop.y, timelineTotalWidth, TIME_LINE_END_HEIGHT);
-
-		// Increase bottom y for aesthetics calculations
-		leftBottom.y += TIME_LINE_END_HEIGHT;
-		rightBottom.y += TIME_LINE_END_HEIGHT;
-
 		// Middle Bar
-		drawBox(gl, leftBottom.x + (rightBottom.x - leftBottom.x) / 2 - (TIME_LINE_TIME_BAR_WIDTH / 2), leftBottom.y,
-				TIME_LINE_TIME_BAR_WIDTH, timelineTotalHeight);
+		drawBox(gl, leftBottom.x, leftBottom.y + (leftTop.y - leftBottom.y) / 2 - TIME_LINE_TIME_BAR_WIDTH / 2,
+				timelineTotalWidth, TIME_LINE_TIME_BAR_WIDTH);
 
 		// Time Bar
-		float timeElapsedPercentage = time / 600;
+		float timeElapsedPercentage = time / TOTAL_GAME_TIME;
 		int borderWidth = 3;
 		int elapsedTimeBarWidth = 2;
 
-		gl.glColor4f(1f, 1f, 1f, 0.9f);
-		drawBox(gl,
-				leftBottom.x + (rightBottom.x - leftBottom.x) / 2 -
-						((TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth + borderWidth) / 2),
-				leftBottom.y, TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth + borderWidth,
-				timelineTotalHeight * timeElapsedPercentage + 2);
-
 		// Time bar border
-		gl.glColor4f(0.1f, 0.7f, 0.2f, 0.9f);
-		drawBox(gl,
-				leftBottom.x + (rightBottom.x - leftBottom.x) / 2 -
-						((TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth) / 2),
-				leftBottom.y, TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth,
-				timelineTotalHeight * timeElapsedPercentage);
+		gl.glColor4f(1f, 1f, 1f, 0.6f);
+		drawBox(gl, leftBottom.x,
+				leftBottom.y + (leftTop.y - leftBottom.y) / 2 -
+						((TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth + borderWidth) / 2),
+				timelineTotalWidth * timeElapsedPercentage + elapsedTimeBarWidth,
+				TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth + borderWidth);
+
+		gl.glColor4f(0.1f, 0.1f, 0.8f, 0.9f);
+		drawBox(gl, leftBottom.x,
+				leftBottom.y + (leftTop.y - leftBottom.y) / 2 - ((TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth) / 2),
+				timelineTotalWidth * timeElapsedPercentage, TIME_LINE_TIME_BAR_WIDTH + elapsedTimeBarWidth);
 		gl.glEnd();
 
 		drawTimelineEvents(gl, vp, gs);
@@ -284,41 +442,39 @@ public class StatisticsOverlay
 		Team team = leftTeam ? viewer.getWorldModel().getLeftTeam() : viewer.getWorldModel().getRightTeam();
 		int timelineTotalWidth = (int) (vp.w * timelineWidthFactor);
 		int timelineTotalHeight = (int) (vp.h * timelineHeightFactor) - TIME_LINE_END_HEIGHT;
-		float padding = (vp.h * (1f - timelineHeightFactor) / 2);
+		float padding = vp.h * timelineHeightFactor;
 		Vec2f leftBottom = new Vec2f(screenWidth - padding - timelineTotalWidth, padding);
+		Vec2f leftTop = new Vec2f(leftBottom.x, leftBottom.y + timelineTotalHeight);
 		Vec2f rightBottom = new Vec2f(leftBottom.x + timelineTotalWidth, leftBottom.y);
+		Vec2f rightTop = new Vec2f(leftBottom.x + timelineTotalWidth, leftBottom.y + timelineTotalHeight);
 		int eventBarThickness = 2;
 
-		// Increase bottom y for aesthetics calculations
-		leftBottom.y += TIME_LINE_END_HEIGHT;
-		rightBottom.y += TIME_LINE_END_HEIGHT;
-
 		for (Statistic statistic : eventList) {
-			float timePercentage = statistic.time / 600;
+			float timePercentage = statistic.time / TOTAL_GAME_TIME;
 
-			Vec2f eventLeftBottomX = new Vec2f(leftBottom.x + (rightBottom.x - leftBottom.x) / 2,
-					leftBottom.y + timelineTotalHeight * timePercentage);
+			Vec2f eventLeftBottomX = new Vec2f(
+					leftBottom.x + timelineTotalWidth * timePercentage, leftBottom.y + (leftTop.y - leftBottom.y) / 2);
 
 			gl.glBegin(GL2.GL_QUADS);
 			gl.glColor4f(0, 0, 0, 0.85f);
-			drawBox(gl, eventLeftBottomX.x - (TIME_LINE_EVENT_BAR_WIDTH / 2), eventLeftBottomX.y,
-					TIME_LINE_EVENT_BAR_WIDTH, eventBarThickness);
+			drawBox(gl, eventLeftBottomX.x, eventLeftBottomX.y - (TIME_LINE_EVENT_BAR_WIDTH / 2), eventBarThickness,
+					TIME_LINE_EVENT_BAR_WIDTH);
 			gl.glEnd();
 
 			// Draw point
-			int pSize = (int) (screenWidth * 0.0115);
+			int pSize = (int) (screenWidth * 0.009);
 
 			gl.glEnable(GL2.GL_POINT_SMOOTH);
 			gl.glPointSize(pSize);
 			gl.glBegin(GL2.GL_POINTS);
-			gl.glColor4f(1f, 1f, 1f, 0.85f);
-			gl.glVertex3f(eventLeftBottomX.x - 20 * (leftTeam ? 1 : -1), eventLeftBottomX.y, 0);
+			gl.glColor4f(0f, 0f, 0f, 0.95f);
+			gl.glVertex3f(eventLeftBottomX.x, eventLeftBottomX.y - 15 * (leftTeam ? 1 : -1), 0);
 			gl.glEnd();
 
-			gl.glPointSize(pSize - 3);
+			gl.glPointSize(pSize - 1);
 			gl.glBegin(GL2.GL_POINTS);
 			gl.glColor3fv(team.getColorMaterial().getDiffuse(), 0);
-			gl.glVertex3f(eventLeftBottomX.x - 20 * (leftTeam ? 1 : -1), eventLeftBottomX.y, 0);
+			gl.glVertex3f(eventLeftBottomX.x, eventLeftBottomX.y - 15 * (leftTeam ? 1 : -1), 0);
 			gl.glEnd();
 			gl.glDisable(GL2.GL_POINT_SMOOTH);
 		}
@@ -417,17 +573,8 @@ public class StatisticsOverlay
 		gl.glEnd();
 	}
 
-	private void buildPanels(List<StatisticsOverlay.Statistic> statistics)
+	private void buildPanels()
 	{
-		// Possession
-		List<StatisticsOverlay.Statistic> possessionStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.POSSESSION))
-						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftPossessionStatistics =
-				possessionStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
-
 		// Offside
 		List<StatisticsOverlay.Statistic> offsideStatistics =
 				statistics.stream()
@@ -519,11 +666,12 @@ public class StatisticsOverlay
 		valuesOne.add(Arrays.asList(String.valueOf(leftDribleStatistics.size()),
 				String.valueOf(dribleStatistics.size() - leftDribleStatistics.size())));
 
-		if (possessionStatistics.size() > 0) {
-			float totalSize = (float) possessionStatistics.size();
+		// Possession
+		if (!possessionValuesOverTime.isEmpty()) {
+			PossessionStatistic lastStatistic = possessionValuesOverTime.get(possessionValuesOverTime.size() - 1);
 			titlesOne.add("Possession");
-			valuesOne.add(Arrays.asList((Math.round((leftPossessionStatistics.size() / totalSize) * 100) + "%"),
-					(Math.round((totalSize - leftPossessionStatistics.size()) / totalSize * 100) + "%")));
+			valuesOne.add(Arrays.asList(Math.round(lastStatistic.leftPossession * 100) + "%",
+					Math.round((1 - lastStatistic.leftPossession) * 100) + "%"));
 		}
 
 		StatisticsPanel statisticsPanelOne = new StatisticsPanel(titlesOne, valuesOne);
@@ -585,6 +733,7 @@ public class StatisticsOverlay
 	public void render(GL2 gl, GLU glu, GLUT glut, Viewport vp)
 	{
 		screenWidth = vp.w;
+		screenHeight = vp.h;
 		render(gl, glu, vp, viewer.getWorldModel().getGameState(), vp.w, vp.h);
 	}
 
@@ -780,16 +929,19 @@ public class StatisticsOverlay
 			detectKick(gs, world);
 			storePositions(gs, world);
 
-			prevBallVelocity =
-					VectorUtil.calculateVelocity(ball.getPosition().minus(prevBallPosition), time - prevTime);
-			prevBallPosition = ball.getPosition();
-			prevAgentId = agentId;
-			prevLeftTeamPossession = leftTeamPossession;
+			Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
+
+			Vec3f currentBallVelocity =
+					VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
+			prevBallPosition = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
+			prevAgent = agent;
 
 			float cycleTime = time - prevTime;
 
 			dribleTimeDelta += cycleTime;
 			kickTimeDelta += cycleTime;
+			possessionStoreDelta += cycleTime;
+			possessionGraphDelta += cycleTime;
 			positionStoreDelta += cycleTime;
 		} catch (NullPointerException e) {
 			System.err.println("Initializing statistics");
@@ -839,27 +991,20 @@ public class StatisticsOverlay
 		Team leftTeam = world.getLeftTeam();
 		Team rightTeam = world.getRightTeam();
 
+		Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
+
 		Vec3f currentBallVelocity =
-				VectorUtil.calculateVelocity(ball.getPosition().minus(prevBallPosition), time - prevTime);
+				VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
 
 		Vec3f velocityDelta = currentBallVelocity.minus(prevBallVelocity);
 
-		if (((velocityDelta.length() < 0 && Math.abs(velocityDelta.length()) > velocityDeltaTrigger) ||
+		//
+		if (((Math.abs(velocityDelta.length()) > velocityDeltaTrigger) ||
 					Math.abs(VectorUtil.calculateAngle(prevBallVelocity, currentBallVelocity)) > degreeDeltaTrigger) &&
 				prevTime < time) {
 			// Drible detection
-			if (prevTime < time && dribleTimeDelta >= dribleTimeGap) {
-				if (leftTeamPossession == prevLeftTeamPossession && agentId == prevAgentId) {
-					prevDribleTouches++;
-				} else {
-					if (prevDribleTouches >= dribleMinTouches) {
-						this.addStatistic(
-								new Statistic(time, StatisticType.DRIBLE, leftTeamPossession ? 1 : 2, agentId));
-					}
-					prevDribleTouches = 0;
-				}
-				dribleTimeDelta = 0;
-			}
+			detectDrible(world);
+			detectShot(gs, world, velocityDelta);
 		}
 
 		//            if (prevBallPosition.minus(ball.getPosition()).length() < 0.01f) {
@@ -867,33 +1012,78 @@ public class StatisticsOverlay
 		//            }
 	}
 
+	private void detectShot(GameState gs, WorldModel world, Vec3f currentBallVelocity)
+	{
+		System.out.println("Field length " + fieldLength);
+		System.out.println("Field width " + fieldWidth);
+		boolean leftPossession = agent.getTeam().getID() == world.getLeftTeam().getID();
+		if (Math.abs(agent.getPosition().x) >= fieldLength / 4 &&
+				(leftPossession ? 1 : -1) * agent.getPosition().x > 0) {
+			if (currentBallVelocity.length() > 10) {
+				float goalLineX = (leftPossession ? -1 : 1) * fieldLength / 2;
+				float yCoordinate =
+						agent.getPosition().y +
+						(currentBallVelocity.y * ((goalLineX - agent.getPosition().x) * currentBallVelocity.x));
+				float goalWidthEnd = gs.getGoalWidth() / 2;
+				StatisticType typeShot =
+						Math.abs(yCoordinate) < goalWidthEnd ? StatisticType.SHOT_TARGET : StatisticType.SHOT;
+
+				this.statistics.add(new Statistic(time, typeShot, agent.getTeam().getID(), agent.getID()));
+			}
+		}
+	}
+
+	private void detectDrible(WorldModel world)
+	{
+		if (prevTime < time && dribleTimeDelta >= dribleTimeGap) {
+			//			System.out.println("Agent team: " + agent.getTeam().getID());
+			//			System.out.println("Prev Agent team: " + prevAgent.getTeam().getID());
+			//			System.out.println("Agent ID: " + agent.getID());
+			//			System.out.println("Prev Agent ID: " + prevAgent.getID());
+			//
+			//			System.out.println("Dribles " + prevDribleTouches);
+			if (agent.getTeam().getID() == prevAgent.getTeam().getID() && agent.getID() == prevAgent.getID()) {
+				prevDribleTouches++;
+			} else {
+				if (prevDribleTouches >= dribleMinTouches) {
+					this.addStatistic(new Statistic(time, StatisticType.DRIBLE,
+							agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
+				}
+				prevDribleTouches = 0;
+			}
+			dribleTimeDelta = 0;
+		}
+	}
+
 	private void detectPossession(GameState gs, WorldModel world)
 	{
-		Ball ball = world.getBall();
-		Team leftTeam = world.getLeftTeam();
-		Team rightTeam = world.getRightTeam();
+		if (possessionStoreDelta >= possessionStoreGap) {
+			Ball ball = world.getBall();
+			Team leftTeam = world.getLeftTeam();
+			Team rightTeam = world.getRightTeam();
 
-		float minimumDistanceToBall = 1000;
-		leftTeamPossession = true;
-		agentId = -1;
+			float minimumDistanceToBall = 1000;
+			agent = null;
 
-		for (Agent agent : leftTeam.getAgents()) {
-			float distanceToBall = Math.abs(agent.getPosition().length() - ball.getPosition().length());
-			if (distanceToBall < minimumDistanceToBall) {
-				minimumDistanceToBall = distanceToBall;
-				agentId = agent.getID();
+			for (Agent player : leftTeam.getAgents()) {
+				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
+				if (distanceToBall < minimumDistanceToBall) {
+					minimumDistanceToBall = distanceToBall;
+					agent = player;
+				}
 			}
-		}
 
-		for (Agent agent : rightTeam.getAgents()) {
-			float distanceToBall = Math.abs(agent.getPosition().length() - ball.getPosition().length());
-			if (distanceToBall < minimumDistanceToBall) {
-				leftTeamPossession = false;
-				agentId = agent.getID();
+			for (Agent player : rightTeam.getAgents()) {
+				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
+				if (distanceToBall < minimumDistanceToBall) {
+					agent = player;
+				}
 			}
-		}
 
-		addStatistic(new Statistic(time, StatisticType.POSSESSION, leftTeamPossession ? 1 : 2, agentId));
+			addStatistic(new Statistic(time, StatisticType.POSSESSION,
+					agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
+			possessionStoreDelta = 0;
+		}
 	}
 
 	@Override
