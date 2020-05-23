@@ -65,6 +65,7 @@ import rv.util.commandline.Argument;
 import rv.util.commandline.BooleanArgument;
 import rv.util.commandline.IntegerArgument;
 import rv.util.commandline.StringArgument;
+import rv.util.parsers.StatisticsParser;
 import rv.util.swing.SwingUtil;
 import rv.world.WorldModel;
 
@@ -119,6 +120,7 @@ public class Viewer
 	private boolean movedFrame;
 	private GLCanvas canvas;
 	private WorldModel world;
+	private StatisticsParser statisticsParser;
 	private UserInterface ui;
 	private NetworkManager netManager;
 	private ContentManager contentManager;
@@ -162,6 +164,11 @@ public class Viewer
 	public WorldModel getWorldModel()
 	{
 		return world;
+	}
+
+	public StatisticsParser getStatisticsParser()
+	{
+		return statisticsParser;
 	}
 
 	public UserInterface getUI()
@@ -223,7 +230,7 @@ public class Viewer
 		StringArgument logFileArgument = new StringArgument("logFile", null);
 		BooleanArgument logModeArgument = new BooleanArgument("logMode");
 		// TODO
-		StringArgument serverHostArgument = new StringArgument("serverHost", "192.168.1.115");
+		StringArgument serverHostArgument = new StringArgument("serverHost", "192.168.1.119");
 		IntegerArgument serverPortArgument = new IntegerArgument("serverPort", null, 1, 65535);
 		StringArgument drawingFilterArgument = new StringArgument("drawingFilter", ".*");
 
@@ -348,6 +355,9 @@ public class Viewer
 			oldSceneGraph = world.getSceneGraph();
 		world = new WorldModel();
 		world.init(drawable.getGL(), contentManager, config, mode);
+
+		statisticsParser = new StatisticsParser(world, this);
+
 		drawings = new Drawings();
 		ui = new UserInterface(this, drawingFilter);
 
@@ -374,6 +384,7 @@ public class Viewer
 		world.addSceneGraphListener(contentManager);
 
 		gl.glClearColor(0, 0, 0, 1);
+
 		init = true;
 	}
 

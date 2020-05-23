@@ -33,6 +33,7 @@ import rv.ui.screens.LiveGameScreen;
 import rv.ui.screens.LogfileModeScreen;
 import rv.ui.screens.Screen;
 import rv.ui.view.CameraController;
+import rv.ui.view.LiveDirectorCamera;
 import rv.ui.view.SimsparkController;
 import rv.ui.view.TargetTrackerCamera;
 
@@ -54,10 +55,16 @@ public class UserInterface implements KeyListener
 	private KeyListener[] tempListeners;
 	private Screen activeScreen;
 	private TargetTrackerCamera trackerCamera;
+	private LiveDirectorCamera liveDirectorCamera;
 
 	public TargetTrackerCamera getTrackerCamera()
 	{
 		return trackerCamera;
+	}
+
+	public LiveDirectorCamera getLiveDirectorCamera()
+	{
+		return liveDirectorCamera;
 	}
 
 	public CameraController getCameraControl()
@@ -117,6 +124,7 @@ public class UserInterface implements KeyListener
 			setActiveScreen(new LogfileModeScreen(viewer));
 
 		trackerCamera = new TargetTrackerCamera(camera, viewer.getWorldModel().getGameState());
+		liveDirectorCamera = new LiveDirectorCamera(camera, viewer.getWorldModel().getGameState());
 	}
 
 	private FPCamera initCamera(GLCapabilitiesImmutable glcaps)
@@ -147,6 +155,7 @@ public class UserInterface implements KeyListener
 		camera.update(elapsedMS);
 
 		trackerCamera.update(viewer.getScreen());
+		liveDirectorCamera.update(viewer.getScreen());
 	}
 
 	public void render(GL2 gl, GLU glu, GLUT glut)

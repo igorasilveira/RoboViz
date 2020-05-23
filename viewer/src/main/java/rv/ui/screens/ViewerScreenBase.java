@@ -28,10 +28,7 @@ import rv.comm.drawing.annotations.AgentAnnotation;
 import rv.comm.drawing.annotations.Annotation;
 import rv.comm.rcssserver.GameState;
 import rv.ui.menus.Menu;
-import rv.ui.view.RobotVantageBase;
-import rv.ui.view.RobotVantageFirstPerson;
-import rv.ui.view.RobotVantageThirdPerson;
-import rv.ui.view.TargetTrackerCamera;
+import rv.ui.view.*;
 import rv.util.swing.SwingUtil;
 import rv.world.ISelectable;
 import rv.world.Team;
@@ -133,7 +130,7 @@ public abstract class ViewerScreenBase
 
 	private void createCameraMenu(Menu menu)
 	{
-		menu.addItem("Live Directing", KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.SHIFT_MASK),
+		menu.addItem("Live Directing", KeyStroke.getKeyStroke(KeyEvent.VK_O, KeyEvent.SHIFT_MASK),
 				this::toggleLiveDirecting);
 		menu.addItem("Track Ball", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), this::toggleBallTracker);
 		menu.addItem("Track Player", KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, KeyEvent.SHIFT_MASK),
@@ -314,7 +311,7 @@ public abstract class ViewerScreenBase
 			else
 				toggleBallTracker();
 			break;
-		case KeyEvent.VK_L:
+		case KeyEvent.VK_O:
 			if (e.isShiftDown())
 				toggleLiveDirecting();
 			break;
@@ -407,6 +404,12 @@ public abstract class ViewerScreenBase
 	private void toggleLiveDirecting()
 	{
 		liveDirecting = !liveDirecting;
+
+		if (liveDirecting) {
+			viewer.getUI().getTrackerCamera().setEnabled(false);
+			LiveDirectorCamera camera = viewer.getUI().getLiveDirectorCamera();
+			camera.setEnabled(liveDirecting);
+		}
 		System.out.println(liveDirecting ? "WE ARE LIVE!" : "LIVE IS OVER...");
 	}
 
@@ -422,6 +425,12 @@ public abstract class ViewerScreenBase
 
 	private void switchTrackerCamera(ISelectable target, TrackerCameraType type)
 	{
+		if (liveDirecting) {
+			LiveDirectorCamera liveDirectorCamera = viewer.getUI().getLiveDirectorCamera();
+			liveDirectorCamera.setEnabled(false);
+			liveDirecting = false;
+		}
+
 		TargetTrackerCamera camera = viewer.getUI().getTrackerCamera();
 		if (camera.isEnabled() && trackerCameraType == type) {
 			type = TrackerCameraType.NONE;

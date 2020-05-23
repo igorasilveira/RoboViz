@@ -158,6 +158,9 @@ public class LiveGameScreen extends ViewerScreenBase implements ServerComm.Serve
 			kickOff(false);
 			break;
 		case KeyEvent.VK_O:
+			if (e.isShiftDown()) {
+				break;
+			}
 			if (viewer.getWorldModel().getGameState() != null &&
 					viewer.getWorldModel().getGameState().getPlayModes() != null) {
 				openPlaymodeOverlay();

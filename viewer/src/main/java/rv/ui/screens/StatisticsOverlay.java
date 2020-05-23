@@ -24,92 +24,22 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import jsgl.jogl.view.Viewport;
 import jsgl.math.vector.Vec2f;
-import jsgl.math.vector.Vec3f;
-import rv.Configuration;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
 import rv.comm.rcssserver.SExp;
 import rv.util.MathUtil;
-import rv.util.MatrixUtil;
-import rv.util.jogl.VectorUtil;
+import rv.util.parsers.StatisticsParser;
 import rv.world.Team;
 import rv.world.WorldModel;
 import rv.world.objects.Agent;
-import rv.world.objects.Ball;
 
 public class StatisticsOverlay
-		extends ScreenBase implements GameState.ServerMessageReceivedListener, GameState.GameStateChangeListener
+		extends ScreenBase implements GameState.GameStateChangeListener, StatisticsParser.StatisticsParserListener
 {
-	public enum StatisticType {
-		OFFSIDE(0, "offside"),
-		FOUL(1, "foul"),
-		FREE_KICK(2, "free_kick"),
-		CORNER(4, "corner"),
-		KICK_IN(5, "kick_in"),
-		GOAL_KICK(6, "goal_kick"),
-		PASS(7, "pass"),
-		DRIBLE(8, "drible"),
-		POSSESSION(9, "possession"),
-		SHOT(10, "shot"),
-		SHOT_TARGET(11, "shot_target"),
-		GOAL(12, "goal");
-
-		private int index;
-		private String name;
-
-		StatisticType(int index, String name)
-		{
-			this.index = index;
-			this.name = name;
-		}
-
-		public String toString()
-		{
-			return name;
-		}
-	}
-
-	public static class Statistic
-	{
-		public float time;
-		public int index;
-		public StatisticType type;
-		public int team;
-		public int agentID;
-		public long receivedTime;
-
-		public Statistic(float time)
-		{
-			this.time = time;
-			this.receivedTime = System.currentTimeMillis();
-		}
-
-		public Statistic(float time, StatisticType type, int team, int agentID)
-		{
-			this.time = time;
-			this.type = type;
-			this.team = team;
-			this.agentID = agentID;
-		}
-	}
-
-	public static class PossessionStatistic
-	{
-		public float time;
-		public float leftPossession;
-
-		public PossessionStatistic(float time, float leftPossession)
-		{
-			this.time = time;
-			this.leftPossession = leftPossession;
-		}
-	}
-
 	private float fieldWidth = 180;
 	private float fieldLength = 120;
 	private float screenWidth = 1;
@@ -143,38 +73,8 @@ public class StatisticsOverlay
 	// Heat map structures
 	private static final float MIN_HEAT_OPACITY = 0.3f;
 	private static final int MAP_SQUARE_SIZE = 10;
-	private int[][] ballPositions;
-	private int[][] leftTeamPositions;
-	private int[][] rightTeamPositions;
-
-	private float positionStoreGap = 1f;
-	private float positionStoreDelta = 0f;
 	private int positionsCount = 0;
 	private int heatMapY = 300;
-
-	private float possessionStoreGap = 1f;
-	private float possessionStoreDelta = 0f;
-	private float possessionGraphGap = 5f;
-	private float possessionGraphDelta = 0f;
-
-	// Kick detection variables
-	// Refactor into a module
-
-	private Agent prevAgent = null;
-	private Vec3f prevBallPosition;
-	private Vec3f prevBallVelocity;
-	private float velocityDeltaTrigger = 0.01f;
-	private float degreeDeltaTrigger = 3f;
-
-	private float kickTimeGap = 2f;
-	private float kickTimeDelta = 0f;
-
-	private float dribleTimeGap = 2f;
-	private float dribleTimeDelta = 0f;
-	private int dribleMinTouches = 2;
-	private int prevDribleTouches = 0;
-
-	// End of kick detection variables
 
 	// Graph variable
 	private final int GRAPH_WIDTH = 400;
@@ -188,25 +88,22 @@ public class StatisticsOverlay
 	private Agent agent = null;
 
 	private StatisticsPanel[] panels;
-	private List<Statistic> statistics = new CopyOnWriteArrayList<>();
-	private List<PossessionStatistic> possessionValuesOverTime = new CopyOnWriteArrayList<>();
 
 	private final TextRenderer tr1;
 	private final TextRenderer tr2;
 
 	private final Viewer viewer;
+	private final StatisticsParser statisticsParser;
 
 	public StatisticsOverlay(Viewer viewer)
 	{
 		this.viewer = viewer;
+		this.statisticsParser = viewer.getStatisticsParser();
+		statisticsParser.addListener(this);
 
 		time = 0;
 		prevTime = 0;
 
-		prevBallPosition = new Vec3f(0, 0, 0);
-		prevBallVelocity = new Vec3f(0, 0, 0);
-
-		viewer.getWorldModel().getGameState().addListener((GameState.ServerMessageReceivedListener) this);
 		viewer.getWorldModel().getGameState().addListener((GameState.GameStateChangeListener) this);
 
 		tr1 = new TextRenderer(new Font("Arial", Font.PLAIN, 22), true, false);
@@ -226,24 +123,21 @@ public class StatisticsOverlay
 
 		float n = 1.0f;
 
-		if (statistics.isEmpty()) {
-			return;
-		}
-
-		parseStatistics();
 		buildPanels();
 		//				gs.clearStatistics();
 
 		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
 		float opacity = dt > PANEL_SHOW_TIME ? 1.0f - (dt - PANEL_SHOW_TIME) / PANEL_FADE_TIME : 1.0f;
-		drawPanel(gl, gs, screenW, screenH, n, opacity);
-		//		drawHeatMap(gl, glu, vp);
-		//		drawPossessionGraph(gl, glu, vp);
+		//		drawPanel(gl, gs, screenW, screenH, n, opacity);
+		drawHeatMap(gl, glu, vp);
+		drawPossessionGraph(gl, glu, vp);
 		n += opacity;
 	}
 
 	private void drawPossessionGraph(GL2 gl, GLU glu, Viewport vp)
 	{
+		List<StatisticsParser.PossessionStatistic> possessionValuesOverTime =
+				statisticsParser.getPossessionValuesOverTime();
 		if (possessionValuesOverTime.isEmpty())
 			return;
 
@@ -280,7 +174,7 @@ public class StatisticsOverlay
 		gl.glEnd();
 
 		for (int i = 0; i < possessionValuesOverTime.size(); i++) {
-			PossessionStatistic statistic = possessionValuesOverTime.get(i);
+			StatisticsParser.PossessionStatistic statistic = possessionValuesOverTime.get(i);
 
 			gl.glEnable(GL2.GL_POINT_SMOOTH);
 			gl.glPointSize(pSize);
@@ -294,7 +188,7 @@ public class StatisticsOverlay
 			gl.glEnd();
 
 			if (i > 0) {
-				PossessionStatistic prevStatistic = possessionValuesOverTime.get(i - 1);
+				StatisticsParser.PossessionStatistic prevStatistic = possessionValuesOverTime.get(i - 1);
 
 				gl.glColor3fv(viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse(), 0);
 				gl.glLineWidth(2);
@@ -355,29 +249,6 @@ public class StatisticsOverlay
 		}
 	}
 
-	private void parseStatistics()
-	{
-		// Possession
-		if (possessionGraphDelta >= possessionGraphGap) {
-			List<StatisticsOverlay.Statistic> possessionStatistics =
-					statistics.stream()
-							.filter(statistic -> statistic.type.equals(StatisticType.POSSESSION))
-							.collect(Collectors.toList());
-
-			List<StatisticsOverlay.Statistic> leftPossessionStatistics =
-					possessionStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
-
-			if (possessionStatistics.size() > 0) {
-				float totalSize = (float) possessionStatistics.size();
-				float leftPossession = leftPossessionStatistics.size() / totalSize;
-
-				possessionValuesOverTime.add(new PossessionStatistic(time, leftPossession));
-			}
-
-			possessionGraphDelta = 0;
-		}
-	}
-
 	private void drawTimeLine(GL2 gl, GLU glu, Viewport vp, GameState gs)
 	{
 		int timelineTotalWidth = (int) (vp.w * timelineWidthFactor);
@@ -423,21 +294,23 @@ public class StatisticsOverlay
 
 	private void drawTimelineEvents(GL2 gl, Viewport vp, GameState gs)
 	{
-		List<StatisticsOverlay.Statistic> goalsLeft =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.GOAL) && statistic.team == 1)
-						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> goalsRight =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.GOAL) && statistic.team == 2)
-						.collect(Collectors.toList());
-
-		drawEventList(gl, vp, goalsLeft, true);
-		drawEventList(gl, vp, goalsRight, false);
+		//		List<StatisticsParser.Statistic> goalsLeft =
+		//				statistics.stream()
+		//						.filter(statistic
+		//								-> statistic.type.equals(StatisticsParser.StatisticType.GOAL) && statistic.team
+		//== 1) 						.collect(Collectors.toList());
+		//
+		//		List<StatisticsParser.Statistic> goalsRight =
+		//				statistics.stream()
+		//						.filter(statistic
+		//								-> statistic.type.equals(StatisticsParser.StatisticType.GOAL) && statistic.team
+		//== 2) 						.collect(Collectors.toList());
+		//
+		//		drawEventList(gl, vp, goalsLeft, true);
+		//		drawEventList(gl, vp, goalsRight, false);
 	}
 
-	private void drawEventList(GL2 gl, Viewport vp, List<Statistic> eventList, boolean leftTeam)
+	private void drawEventList(GL2 gl, Viewport vp, List<StatisticsParser.Statistic> eventList, boolean leftTeam)
 	{
 		Team team = leftTeam ? viewer.getWorldModel().getLeftTeam() : viewer.getWorldModel().getRightTeam();
 		int timelineTotalWidth = (int) (vp.w * timelineWidthFactor);
@@ -449,7 +322,7 @@ public class StatisticsOverlay
 		Vec2f rightTop = new Vec2f(leftBottom.x + timelineTotalWidth, leftBottom.y + timelineTotalHeight);
 		int eventBarThickness = 2;
 
-		for (Statistic statistic : eventList) {
+		for (StatisticsParser.Statistic statistic : eventList) {
 			float timePercentage = statistic.time / TOTAL_GAME_TIME;
 
 			Vec2f eventLeftBottomX = new Vec2f(
@@ -519,11 +392,10 @@ public class StatisticsOverlay
 			world.getField().render(gl);
 
 			gl.glEnable(GL2.GL_QUADS);
-			//			gl.glColor4f(0, 0, 0, 0.2f);
-			//			drawBox(gl, 10, 300, heatMapWidth, heatMapHeight);
 
 			// Ball
-			drawPositions(gl, ballPositions, positionsCount, displayWidth, heatMapHeight, 0, 255, 0);
+			drawPositions(gl, statisticsParser.getBallPositions(), statisticsParser.getPositionsCount(), displayWidth,
+					heatMapHeight, 0, 255, 0);
 			// Left Team
 			//		drawPositions(gl, leftTeamPositions, positionsCount * 10, heatMapHeight, 255, 0, 0);
 			// Right Team
@@ -558,6 +430,7 @@ public class StatisticsOverlay
 		}
 
 		gl.glBegin(GL2.GL_QUADS);
+		int[][] ballPositions = statisticsParser.getBallPositions();
 		for (int i = 0; i < positionsRatio.length; i++) {
 			for (int j = 0; j < positionsRatio[0].length; j++) {
 				float positionRatioValue = positionsRatio[i][j];
@@ -575,100 +448,89 @@ public class StatisticsOverlay
 
 	private void buildPanels()
 	{
-		// Offside
-		List<StatisticsOverlay.Statistic> offsideStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.OFFSIDE))
+		//		 Offside
+		List<StatisticsParser.Statistic> leftOffsideStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.OFFSIDE.toString())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
 
-		List<StatisticsOverlay.Statistic> leftOffsideStatistics =
-				offsideStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
-
-		// Foul
-		List<StatisticsOverlay.Statistic> foulStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.FOUL))
+		//		 Foul
+		List<StatisticsParser.Statistic> leftFoulStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.FOUL.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftFoulStatistics =
-				foulStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
 		// Corner
-		List<StatisticsOverlay.Statistic> cornerStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.CORNER))
+		List<StatisticsParser.Statistic> leftCornerStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.CORNER.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftCornerStatistics =
-				cornerStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
 		// Free Kick
-		List<StatisticsOverlay.Statistic> freeKickStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.FREE_KICK))
+		List<StatisticsParser.Statistic> leftFreeKickStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.FREE_KICK.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftFreeKickStatistics =
-				freeKickStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
-
-		// Pass
-		List<StatisticsOverlay.Statistic> passStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.PASS))
-						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftPassStatistics =
-				passStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
 		// Goal Kick
-		List<StatisticsOverlay.Statistic> goalKickStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.GOAL_KICK))
+		List<StatisticsParser.Statistic> leftGoalKickStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.GOAL_KICK.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftGoalKickStatistics =
-				goalKickStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
 		// Kick In
-		List<StatisticsOverlay.Statistic> kickInStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.KICK_IN))
+		List<StatisticsParser.Statistic> leftKickInStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.KICK_IN.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
-
-		List<StatisticsOverlay.Statistic> leftKickInStatistics =
-				kickInStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
 
 		// Dribles
-		List<StatisticsOverlay.Statistic> dribleStatistics =
-				statistics.stream()
-						.filter(statistic -> statistic.type.equals(StatisticType.DRIBLE))
+		List<StatisticsParser.Statistic> leftDribleStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.DRIBLE.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
 
-		List<StatisticsOverlay.Statistic> leftDribleStatistics =
-				dribleStatistics.stream().filter(statistic -> statistic.team == 1).collect(Collectors.toList());
-
-		ArrayList<String> titlesOne = new ArrayList<>(
+		ArrayList<String> titlesOne = new ArrayList<String>(
 				Arrays.asList("Fouls", "Offsides", "Corners", "Free kicks", "Goal Kicks", "Kick ins", "Dribles"));
 		ArrayList<List<String>> valuesOne = new ArrayList<>();
 
 		valuesOne.add(Arrays.asList(String.valueOf(leftFoulStatistics.size()),
-				String.valueOf(foulStatistics.size() - leftFoulStatistics.size())));
+				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.FOUL.name()).size() -
+							   leftFoulStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftOffsideStatistics.size()),
-				String.valueOf(offsideStatistics.size() - leftOffsideStatistics.size())));
+				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.OFFSIDE.name()).size() -
+							   leftOffsideStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftCornerStatistics.size()),
-				String.valueOf(cornerStatistics.size() - leftCornerStatistics.size())));
+				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.CORNER.name()).size() -
+							   leftCornerStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftFreeKickStatistics.size()),
-				String.valueOf(freeKickStatistics.size() - leftFreeKickStatistics.size())));
+				String.valueOf(
+						statisticsParser.getStatisticList(StatisticsParser.StatisticType.FREE_KICK.name()).size() -
+						leftFreeKickStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftGoalKickStatistics.size()),
-				String.valueOf(goalKickStatistics.size() - leftGoalKickStatistics.size())));
+				String.valueOf(
+						statisticsParser.getStatisticList(StatisticsParser.StatisticType.GOAL_KICK.name()).size() -
+						leftGoalKickStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftKickInStatistics.size()),
-				String.valueOf(kickInStatistics.size() - leftKickInStatistics.size())));
+				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.KICK_IN.name()).size() -
+							   leftKickInStatistics.size())));
 		valuesOne.add(Arrays.asList(String.valueOf(leftDribleStatistics.size()),
-				String.valueOf(dribleStatistics.size() - leftDribleStatistics.size())));
+				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.DRIBLE.name()).size() -
+							   leftDribleStatistics.size())));
 
 		// Possession
+		List<StatisticsParser.PossessionStatistic> possessionValuesOverTime =
+				statisticsParser.getPossessionValuesOverTime();
 		if (!possessionValuesOverTime.isEmpty()) {
-			PossessionStatistic lastStatistic = possessionValuesOverTime.get(possessionValuesOverTime.size() - 1);
+			StatisticsParser.PossessionStatistic lastStatistic =
+					possessionValuesOverTime.get(possessionValuesOverTime.size() - 1);
 			titlesOne.add("Possession");
 			valuesOne.add(Arrays.asList(Math.round(lastStatistic.leftPossession * 100) + "%",
 					Math.round((1 - lastStatistic.leftPossession) * 100) + "%"));
@@ -798,321 +660,6 @@ public class StatisticsOverlay
 		gl.glVertex3f(x, 1, z + h);
 	}
 
-	private void parsePlayModeStatistics(GameState gs, SExp exp)
-	{
-		for (SExp se : exp.getChildren()) {
-			String[] atoms = se.getAtoms();
-
-			if (atoms != null) {
-				String atomName = atoms[0];
-
-				Statistic statistic = new Statistic(time);
-
-				switch (atomName) {
-				case GameState.TIME:
-					prevTime = time;
-					time = Float.parseFloat(atoms[1]);
-					break;
-				case GameState.PLAY_MODE:
-
-					if (gs.isInitialized()) {
-						int mode = Integer.parseInt(atoms[1]);
-						String playMode = gs.getPlayModes()[mode];
-
-						switch (playMode) {
-						case GameState.OFFSIDE_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.OFFSIDE;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("OFFSIDE 1" + Arrays.toString(atoms));
-							break;
-						case GameState.OFFSIDE_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.OFFSIDE;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("OFFSIDE 2" + Arrays.toString(atoms));
-							break;
-						case GameState.KICK_IN_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.KICK_IN;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("KICK_IN 1" + Arrays.toString(atoms));
-							break;
-						case GameState.KICK_IN_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.KICK_IN;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("KICK_IN 2" + Arrays.toString(atoms));
-							break;
-						case GameState.GOAL_KICK_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.GOAL_KICK;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL_KICK 1" + Arrays.toString(atoms));
-							break;
-						case GameState.GOAL_KICK_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.GOAL_KICK;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL_KICK 2" + Arrays.toString(atoms));
-							break;
-						case GameState.FREE_KICK_LEFT:
-						case GameState.DIRECT_FREE_KICK_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.FREE_KICK;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("FREE KICK 1 " + Arrays.toString(atoms));
-							break;
-						case GameState.FREE_KICK_RIGHT:
-						case GameState.DIRECT_FREE_KICK_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.FREE_KICK;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("FREE KICK 2 " + Arrays.toString(atoms));
-							break;
-						case GameState.CORNER_KICK_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.CORNER;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("CORNER 1 " + Arrays.toString(atoms));
-							break;
-						case GameState.CORNER_KICK_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.CORNER;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("CORNER 2 " + Arrays.toString(atoms));
-							break;
-						case GameState.GOAL_LEFT:
-							statistic.type = StatisticsOverlay.StatisticType.GOAL;
-							statistic.team = 1;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL 1 " + Arrays.toString(atoms));
-							break;
-						case GameState.GOAL_RIGHT:
-							statistic.type = StatisticsOverlay.StatisticType.GOAL;
-							statistic.team = 2;
-							statistic.index = Integer.parseInt(atoms[1]);
-							System.out.println("GOAL 2 " + Arrays.toString(atoms));
-							break;
-						}
-					}
-					break;
-				case GameState.FOUL:
-					statistic.index = Integer.parseInt(atoms[1]);
-					statistic.type = StatisticsOverlay.StatisticType.FOUL;
-					statistic.team = Integer.parseInt(atoms[3]);
-					statistic.agentID = Integer.parseInt(atoms[4]);
-					break;
-				}
-
-				if (statistic.type != null)
-					addStatistic(statistic);
-			}
-		}
-	}
-
-	private void calculateStateStatistics(GameState gs)
-	{
-		if (!gs.isInitialized() || !gs.isPlaying())
-			return;
-
-		WorldModel world = viewer.getWorldModel();
-		Ball ball = world.getBall();
-		Team leftTeam = world.getLeftTeam();
-		Team rightTeam = world.getRightTeam();
-
-		if (leftTeam.getAgents().isEmpty() || rightTeam.getAgents().isEmpty())
-			return;
-
-		try {
-			detectPossession(gs, world);
-			detectKick(gs, world);
-			storePositions(gs, world);
-
-			Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
-
-			Vec3f currentBallVelocity =
-					VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
-			prevBallPosition = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
-			prevAgent = agent;
-
-			float cycleTime = time - prevTime;
-
-			dribleTimeDelta += cycleTime;
-			kickTimeDelta += cycleTime;
-			possessionStoreDelta += cycleTime;
-			possessionGraphDelta += cycleTime;
-			positionStoreDelta += cycleTime;
-		} catch (NullPointerException e) {
-			System.err.println("Initializing statistics");
-		}
-	}
-
-	private void storePositions(GameState gs, WorldModel world)
-	{
-		if (positionStoreDelta >= positionStoreGap) {
-			Ball ball = world.getBall();
-			Team leftTeam = world.getLeftTeam();
-			Team rightTeam = world.getRightTeam();
-
-			// Ball
-			int BallXPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldLength / 2f - ball.getPosition().x) - 1, 0, (int) fieldLength);
-			int BallYPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldWidth / 2f - ball.getPosition().z) - 1, 0, (int) fieldWidth);
-			ballPositions[BallYPosition][BallXPosition] += 1;
-
-			// Left Team
-			storeTeamPositions(leftTeam, fieldLength, fieldWidth, leftTeamPositions);
-			// Right Team
-			storeTeamPositions(rightTeam, fieldLength, fieldWidth, rightTeamPositions);
-
-			positionStoreDelta = 0;
-			positionsCount++;
-		}
-	}
-
-	private void storeTeamPositions(Team team, float fieldLength, float fieldWidth, int[][] teamPositions)
-	{
-		for (Agent player : team.getAgents()) {
-			if (player.getID() != 1) {
-				int XPosition = MatrixUtil.normalizeIndex(
-						Math.round(fieldLength / 2f - player.getPosition().x) - 1, 0, (int) (fieldLength - 1));
-				int YPosition = MatrixUtil.normalizeIndex(
-						Math.round(fieldWidth / 2f - player.getPosition().z) - 1, 0, (int) (fieldWidth - 1));
-				teamPositions[YPosition][XPosition] += 1;
-			}
-		}
-	}
-
-	private void detectKick(GameState gs, WorldModel world)
-	{
-		Ball ball = world.getBall();
-		Team leftTeam = world.getLeftTeam();
-		Team rightTeam = world.getRightTeam();
-
-		Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
-
-		Vec3f currentBallVelocity =
-				VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
-
-		Vec3f velocityDelta = currentBallVelocity.minus(prevBallVelocity);
-
-		//
-		if (((Math.abs(velocityDelta.length()) > velocityDeltaTrigger) ||
-					Math.abs(VectorUtil.calculateAngle(prevBallVelocity, currentBallVelocity)) > degreeDeltaTrigger) &&
-				prevTime < time) {
-			// Drible detection
-			detectDrible(world);
-			detectShot(gs, world, velocityDelta);
-		}
-
-		//            if (prevBallPosition.minus(ball.getPosition()).length() < 0.01f) {
-		//                System.out.println("Ball same position");
-		//            }
-	}
-
-	private void detectShot(GameState gs, WorldModel world, Vec3f currentBallVelocity)
-	{
-		System.out.println("Field length " + fieldLength);
-		System.out.println("Field width " + fieldWidth);
-		boolean leftPossession = agent.getTeam().getID() == world.getLeftTeam().getID();
-		if (Math.abs(agent.getPosition().x) >= fieldLength / 4 &&
-				(leftPossession ? 1 : -1) * agent.getPosition().x > 0) {
-			if (currentBallVelocity.length() > 10) {
-				float goalLineX = (leftPossession ? -1 : 1) * fieldLength / 2;
-				float yCoordinate =
-						agent.getPosition().y +
-						(currentBallVelocity.y * ((goalLineX - agent.getPosition().x) * currentBallVelocity.x));
-				float goalWidthEnd = gs.getGoalWidth() / 2;
-				StatisticType typeShot =
-						Math.abs(yCoordinate) < goalWidthEnd ? StatisticType.SHOT_TARGET : StatisticType.SHOT;
-
-				this.statistics.add(new Statistic(time, typeShot, agent.getTeam().getID(), agent.getID()));
-			}
-		}
-	}
-
-	private void detectDrible(WorldModel world)
-	{
-		if (prevTime < time && dribleTimeDelta >= dribleTimeGap) {
-			//			System.out.println("Agent team: " + agent.getTeam().getID());
-			//			System.out.println("Prev Agent team: " + prevAgent.getTeam().getID());
-			//			System.out.println("Agent ID: " + agent.getID());
-			//			System.out.println("Prev Agent ID: " + prevAgent.getID());
-			//
-			//			System.out.println("Dribles " + prevDribleTouches);
-			if (agent.getTeam().getID() == prevAgent.getTeam().getID() && agent.getID() == prevAgent.getID()) {
-				prevDribleTouches++;
-			} else {
-				if (prevDribleTouches >= dribleMinTouches) {
-					this.addStatistic(new Statistic(time, StatisticType.DRIBLE,
-							agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
-				}
-				prevDribleTouches = 0;
-			}
-			dribleTimeDelta = 0;
-		}
-	}
-
-	private void detectPossession(GameState gs, WorldModel world)
-	{
-		if (possessionStoreDelta >= possessionStoreGap) {
-			Ball ball = world.getBall();
-			Team leftTeam = world.getLeftTeam();
-			Team rightTeam = world.getRightTeam();
-
-			float minimumDistanceToBall = 1000;
-			agent = null;
-
-			for (Agent player : leftTeam.getAgents()) {
-				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
-				if (distanceToBall < minimumDistanceToBall) {
-					minimumDistanceToBall = distanceToBall;
-					agent = player;
-				}
-			}
-
-			for (Agent player : rightTeam.getAgents()) {
-				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
-				if (distanceToBall < minimumDistanceToBall) {
-					agent = player;
-				}
-			}
-
-			addStatistic(new Statistic(time, StatisticType.POSSESSION,
-					agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
-			possessionStoreDelta = 0;
-		}
-	}
-
-	@Override
-	public void gsServerMessageReceived(GameState gs, SExp exp)
-	{
-		synchronized (this)
-		{
-			if (!isInitialized && gs.isInitialized())
-				initializeMaps();
-
-			parsePlayModeStatistics(gs, exp);
-			calculateStateStatistics(gs);
-		}
-	}
-
-	private void initializeMaps()
-	{
-		ballPositions = new int[(int) fieldWidth][(int) fieldLength];
-		leftTeamPositions = new int[(int) fieldWidth][(int) fieldLength];
-		rightTeamPositions = new int[(int) fieldWidth][(int) fieldLength];
-
-		isInitialized = true;
-	}
-
-	@Override
-	public void gsServerMessageProcessed(GameState gs)
-	{
-	}
-
 	@Override
 	public void gsMeasuresAndRulesChanged(GameState gs)
 	{
@@ -1128,20 +675,12 @@ public class StatisticsOverlay
 	@Override
 	public void gsTimeChanged(GameState gs)
 	{
+		this.time = gs.getTime();
 	}
 
-	public void addStatistic(Statistic statistic)
+	@Override
+	public void goalReceived(StatisticsParser.Statistic statistic)
 	{
-		boolean alreadyHaveStatistic = false;
-		for (Statistic s : statistics) {
-			if (s.type == statistic.type && s.team == statistic.team && s.agentID == statistic.agentID &&
-					Math.abs(statistic.time - s.time) < 1.0) {
-				alreadyHaveStatistic = true;
-				break;
-			}
-		}
-		if (!alreadyHaveStatistic) {
-			statistics.add(statistic);
-		}
+		System.out.println("Goal received");
 	}
 }
