@@ -394,9 +394,9 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 
 			// Ball
 			int BallXPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldLength / 2f - ball.getPosition().x) - 1, 0, (int) fieldLength);
+					Math.round(fieldLength / 2f - ball.getPosition().x) - 1, 0, (int) fieldLength - 1);
 			int BallYPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldWidth / 2f - ball.getPosition().z) - 1, 0, (int) fieldWidth);
+					Math.round(fieldWidth / 2f - ball.getPosition().z) - 1, 0, (int) fieldWidth - 1);
 			ballPositions[BallYPosition][BallXPosition] += 1;
 
 			// Left Team
@@ -503,7 +503,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 			agent = null;
 
 			for (Agent player : leftTeam.getAgents()) {
-				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
+				float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
 				if (distanceToBall < minimumDistanceToBall) {
 					minimumDistanceToBall = distanceToBall;
 					agent = player;
@@ -511,7 +511,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 			}
 
 			for (Agent player : rightTeam.getAgents()) {
-				float distanceToBall = Math.abs(player.getPosition().length() - ball.getPosition().length());
+				float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
 				if (distanceToBall < minimumDistanceToBall) {
 					agent = player;
 				}

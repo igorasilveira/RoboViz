@@ -124,7 +124,7 @@ public class UserInterface implements KeyListener
 			setActiveScreen(new LogfileModeScreen(viewer));
 
 		trackerCamera = new TargetTrackerCamera(camera, viewer.getWorldModel().getGameState());
-		liveDirectorCamera = new LiveDirectorCamera(camera, viewer.getWorldModel().getGameState());
+		liveDirectorCamera = new LiveDirectorCamera(camera, viewer);
 	}
 
 	private FPCamera initCamera(GLCapabilitiesImmutable glcaps)

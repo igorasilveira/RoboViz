@@ -410,6 +410,8 @@ public class StatisticsOverlay
 	private void drawPositions(GL2 gl, int[][] positionsArray, int positionsTaken, int heatMapWidth, int heatMapHeight,
 			int red, int green, int blue)
 	{
+		if (positionsArray == null)
+			return;
 		float[][] positionsRatio = new float[positionsArray.length][positionsArray[0].length];
 
 		float maxRatio = 0;

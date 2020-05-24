@@ -20,16 +20,26 @@ import jsgl.jogl.view.FPCamera;
 import jsgl.jogl.view.Viewport;
 import jsgl.math.vector.Vec2f;
 import jsgl.math.vector.Vec3f;
+import rv.Viewer;
 import rv.comm.rcssserver.GameState;
+import rv.ui.CameraSetting;
 import rv.world.ISelectable;
+import rv.world.WorldModel;
 import rv.world.objects.Agent;
 import rv.world.objects.Ball;
 
 public class LiveDirectorCamera
 {
 	private boolean enabled = false;
+	private boolean initializedCameras = false;
+	private boolean initializedTarget = false;
 	private final FPCamera camera;
+	private CameraSetting[] cameras;
 	private GameState gs;
+	private WorldModel world;
+	private Viewer viewer;
+
+	private float PITCH_SIDE_DISTANCE_MULTIPLIER = 0.8f;
 
 	private ISelectable target;
 	private double playbackSpeed = 1;
@@ -43,16 +53,11 @@ public class LiveDirectorCamera
 	public void setEnabled(boolean enabled)
 	{
 		this.enabled = enabled;
-	}
-
-	public ISelectable getTarget()
-	{
-		return target;
-	}
-
-	public void setTarget(ISelectable target)
-	{
-		this.target = target;
+		if (enabled) {
+			int cameraIndex = gs.isInitialized() ? 1 : 0;
+			camera.setPosition(cameras[cameraIndex].getPosition().clone());
+			camera.setRotation(cameras[cameraIndex].getRotation().clone());
+		}
 	}
 
 	public void setPlaybackSpeed(double playbackSpeed)
@@ -60,34 +65,66 @@ public class LiveDirectorCamera
 		this.playbackSpeed = playbackSpeed;
 	}
 
-	public LiveDirectorCamera(FPCamera camera, GameState gs)
+	public LiveDirectorCamera(FPCamera camera, Viewer viewer)
 	{
 		this.camera = camera;
-		this.gs = gs;
+		this.viewer = viewer;
+		this.world = viewer.getWorldModel();
+		this.gs = world.getGameState();
 		lastScreenPos = null;
+	}
+
+	private void initTarget()
+	{
+		if (gs.isInitialized()) {
+			target = viewer.getWorldModel().getBall();
+			initializedTarget = true;
+		}
+	}
+
+	private void initCameras()
+	{
+		float fl = gs.getFieldLength();
+		float fw = gs.getFieldWidth();
+
+		double fov = Math.toRadians(100);
+		float aerialHeight = (float) (0.3 * fw / Math.tan(fov * 0.5) * 1.8);
+
+		cameras = new CameraSetting[] {
+				new CameraSetting(new Vec3f(0, aerialHeight, PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-25, 0)),
+				new CameraSetting(
+						new Vec3f(0, aerialHeight, -PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-25, 180))};
+		initializedCameras = true;
 	}
 
 	public void update(Viewport screen)
 	{
 		if (!enabled)
 			return;
-		System.out.println("ENABLED");
 
-		float scale = (float) (1 - (0.02f * playbackSpeed));
-		//		if (target instanceof Agent) {
-		//			scale = 0.95f;
-		//		} else {
-		//			scale = scaleWithBallSpeed(screen, scale);
-		//		}
-		scale = 0.1f;
+		if (!initializedCameras)
+			initCameras();
 
-		//		Vec3f cameraTarget = offsetTargetPosition(target.getPosition());
-		Vec3f newPos = camera.getPosition().clone();
-		newPos.add(2);
-		Vec3f cameraTarget = offsetTargetPosition(newPos);
+		if (!initializedTarget)
+			initTarget();
 
-		camera.setPosition(Vec3f.lerp(cameraTarget, camera.getPosition(), scale));
-		camera.setRotation(new Vec2f(-30, 180));
+		if (target != null) {
+			float scale = (float) (1 - (0.02f * playbackSpeed));
+			if (target instanceof Agent) {
+				scale = 0.95f;
+			} else {
+				scale = scaleWithBallSpeed(screen, scale);
+			}
+
+			Vec3f cameraTargetPosition = offsetTargetPosition(target.getPosition());
+			Vec2f cameraTargetRotation = offsetTargetRotation(target.getPosition());
+
+			camera.setPosition(Vec3f.lerp(cameraTargetPosition, camera.getPosition(), scale));
+			camera.setRotation(Vec2f.lerp(cameraTargetRotation, camera.getRotAngle(), scale));
+		} else {
+			camera.setPosition(Vec3f.lerp(cameras[0].getPosition().clone(), camera.getPosition(), 0.01f));
+			camera.setRotation(Vec2f.lerp(cameras[0].getRotation().clone(), camera.getRotAngle(), 0.01f));
+		}
 	}
 
 	private float scaleWithBallSpeed(Viewport screen, float scale)
@@ -118,22 +155,28 @@ public class LiveDirectorCamera
 	 * Tries to keep the ball in the middle of the screen (unless we're near a field edge, then it
 	 * shifts the position a bit to fill as much of the screen with the field as possible)
 	 */
+	private Vec2f offsetTargetRotation(Vec3f targetPos)
+	{
+		Vec2f targetRotation = new Vec2f(-30, 180);
+
+		float distance = camera.getPosition().minus(targetPos).length();
+		targetRotation.x =
+				(float) (-30 - Math.toDegrees(Math.acos((targetPos.y - camera.getPosition().y) / distance)) * 0.01);
+		targetRotation.y = 180 + (float) Math.toDegrees(Math.asin((targetPos.x - camera.getPosition().x) / distance));
+
+		return targetRotation;
+	}
+
 	private Vec3f offsetTargetPosition(Vec3f targetPos)
 	{
-		float halfLength = gs.getFieldLength() / 2;
-		float halfWidth = gs.getFieldWidth() / 2;
+		Vec3f targetPosition = targetPos;
+		float maxDistance = gs.getFieldWidth() / 2;
+		Vec3f rayVector = cameras[1].getPosition().minus(targetPos);
+		rayVector.div(rayVector.length());
+		rayVector.mul(maxDistance);
 
-		float zoom = target instanceof Ball ? 1 : 4;
-
-		float xOffset = 4 * fuzzyValue(targetPos.x, -halfLength, halfLength);
-		float baseZOffset = -8 / zoom;
-		float zOffset = baseZOffset + 3 * fuzzyValue(targetPos.z, -halfWidth, halfWidth);
-
-		Vec3f offsetPos = targetPos.clone();
-		offsetPos.add(Vec3f.unitX().times(xOffset));
-		offsetPos.add(Vec3f.unitY().times(4 / zoom));
-		offsetPos.add(Vec3f.unitZ().times(zOffset));
-		return offsetPos;
+		targetPos.add(rayVector);
+		return targetPosition;
 	}
 
 	private float fuzzyValue(float value, float lower, float upper)

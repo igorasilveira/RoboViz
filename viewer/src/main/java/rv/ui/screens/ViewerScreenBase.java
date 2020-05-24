@@ -409,6 +409,8 @@ public abstract class ViewerScreenBase
 			viewer.getUI().getTrackerCamera().setEnabled(false);
 			LiveDirectorCamera camera = viewer.getUI().getLiveDirectorCamera();
 			camera.setEnabled(liveDirecting);
+		} else {
+			viewer.getUI().getLiveDirectorCamera().setEnabled(false);
 		}
 		System.out.println(liveDirecting ? "WE ARE LIVE!" : "LIVE IS OVER...");
 	}
