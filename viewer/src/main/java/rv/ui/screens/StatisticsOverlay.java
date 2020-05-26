@@ -685,4 +685,19 @@ public class StatisticsOverlay
 	{
 		System.out.println("Goal received");
 	}
+
+	@Override
+	public void goalKickReceived(StatisticsParser.Statistic goalKickStatistic)
+	{
+	}
+
+	@Override
+	public void cornerKickReceived(StatisticsParser.Statistic cornerKickStatistic)
+	{
+	}
+
+	@Override
+	public void playOnReceived()
+	{
+	}
 }

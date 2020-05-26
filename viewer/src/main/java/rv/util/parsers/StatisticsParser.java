@@ -19,6 +19,9 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	public interface StatisticsParserListener {
 		/** Called when a goal is received */
 		void goalReceived(Statistic goalStatistic);
+		void goalKickReceived(Statistic goalKickStatistic);
+		void cornerKickReceived(Statistic cornerKickStatistic);
+		void playOnReceived();
 	}
 
 	public enum StatisticType {
@@ -220,6 +223,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 		boolean isGoalKick = false;
 		boolean isFreeKick = false;
 		boolean isCornerKick = false;
+		boolean isPlayOn = false;
 		for (SExp se : exp.getChildren()) {
 			String[] atoms = se.getAtoms();
 
@@ -240,6 +244,9 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 						String playMode = gs.getPlayModes()[mode];
 
 						switch (playMode) {
+						case GameState.PLAY_ON:
+							isPlayOn = true;
+							break;
 						case GameState.OFFSIDE_LEFT:
 							statistic.type = StatisticsParser.StatisticType.OFFSIDE;
 							statistic.team = 1;
@@ -342,6 +349,21 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 				if (isGoal) {
 					for (StatisticsParserListener l : spListeners) {
 						l.goalReceived(statistic);
+					}
+				}
+				if (isGoalKick) {
+					for (StatisticsParserListener l : spListeners) {
+						l.goalKickReceived(statistic);
+					}
+				}
+				if (isPlayOn) {
+					for (StatisticsParserListener l : spListeners) {
+						l.playOnReceived();
+					}
+				}
+				if (isCornerKick) {
+					for (StatisticsParserListener l : spListeners) {
+						l.cornerKickReceived(statistic);
 					}
 				}
 			}
@@ -529,7 +551,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	{
 		synchronized (this)
 		{
-			if (!gs.isInitialized() || !gs.isPlaying())
+			if (!gs.isInitialized())
 				return;
 
 			if (!isInitialized)

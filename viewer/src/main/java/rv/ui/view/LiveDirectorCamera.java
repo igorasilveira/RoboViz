@@ -23,12 +23,13 @@ import jsgl.math.vector.Vec3f;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
 import rv.ui.CameraSetting;
+import rv.util.parsers.StatisticsParser;
 import rv.world.ISelectable;
 import rv.world.WorldModel;
 import rv.world.objects.Agent;
 import rv.world.objects.Ball;
 
-public class LiveDirectorCamera
+public class LiveDirectorCamera implements StatisticsParser.StatisticsParserListener
 {
 	private boolean enabled = false;
 	private boolean initializedCameras = false;
@@ -38,6 +39,8 @@ public class LiveDirectorCamera
 	private GameState gs;
 	private WorldModel world;
 	private Viewer viewer;
+	private CameraType currentCameraType = CameraType.BEFORE_LIVE;
+	private boolean isLeftTeam = false;
 
 	private float PITCH_SIDE_DISTANCE_MULTIPLIER = 0.8f;
 
@@ -50,13 +53,34 @@ public class LiveDirectorCamera
 		return enabled;
 	}
 
+	public enum CameraType {
+		BEFORE_LIVE(0, "before_live"),
+		LIVE(1, "live"),
+		GOAL_KICK(2, "goal_kick"),
+		CORNER(3, "corner");
+
+		private int index;
+		private String name;
+
+		CameraType(int index, String name)
+		{
+			this.index = index;
+			this.name = name;
+		}
+
+		public String toString()
+		{
+			return name;
+		}
+	}
+
 	public void setEnabled(boolean enabled)
 	{
 		this.enabled = enabled;
 		if (enabled) {
-			int cameraIndex = gs.isInitialized() ? 1 : 0;
-			camera.setPosition(cameras[cameraIndex].getPosition().clone());
-			camera.setRotation(cameras[cameraIndex].getRotation().clone());
+			currentCameraType = gs.isInitialized() ? CameraType.GOAL_KICK : CameraType.BEFORE_LIVE;
+			camera.setPosition(cameras[currentCameraType.index].getPosition().clone());
+			camera.setRotation(cameras[currentCameraType.index].getRotation().clone());
 		}
 	}
 
@@ -71,13 +95,16 @@ public class LiveDirectorCamera
 		this.viewer = viewer;
 		this.world = viewer.getWorldModel();
 		this.gs = world.getGameState();
+		viewer.getStatisticsParser().addListener(this);
 		lastScreenPos = null;
 	}
 
 	private void initTarget()
 	{
 		if (gs.isInitialized()) {
-			target = viewer.getWorldModel().getBall();
+			if (currentCameraType.name == "live")
+				target = viewer.getWorldModel().getBall();
+
 			initializedTarget = true;
 		}
 	}
@@ -89,11 +116,19 @@ public class LiveDirectorCamera
 
 		double fov = Math.toRadians(100);
 		float aerialHeight = (float) (0.3 * fw / Math.tan(fov * 0.5) * 1.8);
+		int teamMultiplier = isLeftTeam ? 1 : -1;
 
-		cameras = new CameraSetting[] {
-				new CameraSetting(new Vec3f(0, aerialHeight, PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-25, 0)),
+		cameras = new CameraSetting[] {// BEFORE_LIVE camera
+				new CameraSetting(new Vec3f(0, aerialHeight, PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-35, 0)),
+				// LIVE camera
 				new CameraSetting(
-						new Vec3f(0, aerialHeight, -PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-25, 180))};
+						new Vec3f(0, aerialHeight, -PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-35, 180)),
+				// GOAL_KICK camera
+				new CameraSetting(new Vec3f(((fl / 2) + 2.4f) * teamMultiplier, 0.5f, -3.4f),
+						new Vec2f(8, 90 * teamMultiplier + 35 * teamMultiplier)),
+				// CORNER camera
+				new CameraSetting(new Vec3f(((fl / 2) - 2) * teamMultiplier, aerialHeight / 2, -fw / 2 - 3),
+						new Vec2f(-30, 180 - 15 * teamMultiplier))};
 		initializedCameras = true;
 	}
 
@@ -102,9 +137,28 @@ public class LiveDirectorCamera
 		if (!enabled)
 			return;
 
-		if (!initializedCameras)
+		if (!initializedCameras) {
 			initCameras();
+			return;
+		}
 
+		if (currentCameraType.equals(CameraType.LIVE)) {
+			handleLiveFeed(screen);
+			return;
+		}
+
+		updateCameraType();
+	}
+
+	private void updateCameraType()
+	{
+		CameraSetting goalKickSetting = cameras[currentCameraType.index];
+		camera.setPosition(goalKickSetting.getPosition().clone());
+		camera.setRotation(goalKickSetting.getRotation().clone());
+	}
+
+	private void handleLiveFeed(Viewport screen)
+	{
 		if (!initializedTarget)
 			initTarget();
 
@@ -122,8 +176,10 @@ public class LiveDirectorCamera
 			camera.setPosition(Vec3f.lerp(cameraTargetPosition, camera.getPosition(), scale));
 			camera.setRotation(Vec2f.lerp(cameraTargetRotation, camera.getRotAngle(), scale));
 		} else {
-			camera.setPosition(Vec3f.lerp(cameras[0].getPosition().clone(), camera.getPosition(), 0.01f));
-			camera.setRotation(Vec2f.lerp(cameras[0].getRotation().clone(), camera.getRotAngle(), 0.01f));
+			camera.setPosition(
+					Vec3f.lerp(cameras[currentCameraType.index].getPosition().clone(), camera.getPosition(), 0.01f));
+			camera.setRotation(
+					Vec2f.lerp(cameras[currentCameraType.index].getRotation().clone(), camera.getRotAngle(), 0.01f));
 		}
 	}
 
@@ -171,7 +227,7 @@ public class LiveDirectorCamera
 	{
 		Vec3f targetPosition = targetPos;
 		float maxDistance = gs.getFieldWidth() / 2;
-		Vec3f rayVector = cameras[1].getPosition().minus(targetPos);
+		Vec3f rayVector = cameras[CameraType.LIVE.index].getPosition().minus(targetPos);
 		rayVector.div(rayVector.length());
 		rayVector.mul(maxDistance);
 
@@ -195,5 +251,33 @@ public class LiveDirectorCamera
 		if (t < 0.5)
 			result *= -1;
 		return result;
+	}
+
+	@Override
+	public void goalReceived(StatisticsParser.Statistic goalStatistic)
+	{
+	}
+
+	@Override
+	public void goalKickReceived(StatisticsParser.Statistic goalKickStatistic)
+	{
+		System.out.println("Camera received goal kick");
+		isLeftTeam = goalKickStatistic.team == 1;
+		currentCameraType = CameraType.GOAL_KICK;
+	}
+
+	@Override
+	public void cornerKickReceived(StatisticsParser.Statistic cornerKickStatistic)
+	{
+		System.out.println("Camera received goal kick");
+		isLeftTeam = cornerKickStatistic.team == 1;
+		currentCameraType = CameraType.CORNER;
+	}
+
+	@Override
+	public void playOnReceived()
+	{
+		System.out.println("Camera received play on");
+		currentCameraType = CameraType.LIVE;
 	}
 }
