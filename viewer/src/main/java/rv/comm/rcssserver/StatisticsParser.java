@@ -1,12 +1,10 @@
-package rv.util.parsers;
+package rv.comm.rcssserver;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import jsgl.math.vector.Vec3f;
 import rv.Viewer;
-import rv.comm.rcssserver.GameState;
-import rv.comm.rcssserver.SExp;
 import rv.util.MatrixUtil;
 import rv.util.jogl.VectorUtil;
 import rv.world.Team;
@@ -96,6 +94,8 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	private static final float fieldOverlayWidthFactor = 0.3f;
 
 	private boolean isInitialized = false;
+
+	private float minimumDistanceToBall = 1000;
 
 	// TIMELINE
 
@@ -521,7 +521,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 			Team leftTeam = world.getLeftTeam();
 			Team rightTeam = world.getRightTeam();
 
-			float minimumDistanceToBall = 1000;
+			minimumDistanceToBall = 1000;
 			agent = null;
 
 			for (Agent player : leftTeam.getAgents()) {
@@ -535,6 +535,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 			for (Agent player : rightTeam.getAgents()) {
 				float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
 				if (distanceToBall < minimumDistanceToBall) {
+					minimumDistanceToBall = distanceToBall;
 					agent = player;
 				}
 			}
@@ -615,5 +616,10 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	public List<Statistic> getStatisticList(String key)
 	{
 		return statistics.getOrDefault(key, new CopyOnWriteArrayList<Statistic>());
+	}
+
+	public float getMinimumDistanceToBall()
+	{
+		return minimumDistanceToBall;
 	}
 }

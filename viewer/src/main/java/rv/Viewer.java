@@ -57,6 +57,7 @@ import rv.comm.NetworkManager;
 import rv.comm.drawing.Drawings;
 import rv.comm.rcssserver.LogPlayer;
 import rv.comm.rcssserver.ServerComm;
+import rv.comm.rcssserver.StatisticsParser;
 import rv.comm.rcssserver.scenegraph.SceneGraph;
 import rv.content.ContentManager;
 import rv.ui.UserInterface;
@@ -65,7 +66,6 @@ import rv.util.commandline.Argument;
 import rv.util.commandline.BooleanArgument;
 import rv.util.commandline.IntegerArgument;
 import rv.util.commandline.StringArgument;
-import rv.util.parsers.StatisticsParser;
 import rv.util.swing.SwingUtil;
 import rv.world.WorldModel;
 

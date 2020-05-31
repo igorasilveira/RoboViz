@@ -24,15 +24,13 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import jsgl.jogl.view.Viewport;
 import jsgl.math.vector.Vec2f;
 import rv.Viewer;
 import rv.comm.rcssserver.GameState;
-import rv.comm.rcssserver.SExp;
+import rv.comm.rcssserver.StatisticsParser;
 import rv.util.MathUtil;
-import rv.util.parsers.StatisticsParser;
 import rv.world.Team;
 import rv.world.WorldModel;
 import rv.world.objects.Agent;
@@ -128,9 +126,9 @@ public class StatisticsOverlay
 
 		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
 		float opacity = dt > PANEL_SHOW_TIME ? 1.0f - (dt - PANEL_SHOW_TIME) / PANEL_FADE_TIME : 1.0f;
-		//		drawPanel(gl, gs, screenW, screenH, n, opacity);
-		drawHeatMap(gl, glu, vp);
-		drawPossessionGraph(gl, glu, vp);
+		drawPanel(gl, gs, screenW, screenH, n, opacity);
+		//		drawHeatMap(gl, glu, vp);
+		//		drawPossessionGraph(gl, glu, vp);
 		n += opacity;
 	}
 
