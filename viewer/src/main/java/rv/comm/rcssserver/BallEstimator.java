@@ -250,9 +250,8 @@ public class BallEstimator
 	Vec3f estimatedFinalPosAway()
 	{
 		Vec3f refVel = estimatedVelAway(0.0f);
-		// Vec3f estPos = refPos - refVel/ballExpK;
+
 		Vec3f estPos = world.getBall().getPosition().minus(refVel.over(ballExpK));
-		;
 
 		estPos.z = refPos.z;
 
