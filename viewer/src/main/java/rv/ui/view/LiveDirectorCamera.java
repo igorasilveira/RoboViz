@@ -28,7 +28,7 @@ import rv.world.ISelectable;
 import rv.world.WorldModel;
 import rv.world.objects.Agent;
 
-public class LiveDirectorCamera implements StatisticsParser.StatisticsParserListener
+public class LiveDirectorCamera implements StatisticsParser.StatisticsParserListener, GameState.GameStateChangeListener
 {
 	private boolean enabled = false;
 	private boolean initializedTarget = false;
@@ -46,6 +46,9 @@ public class LiveDirectorCamera implements StatisticsParser.StatisticsParserList
 	private ISelectable target;
 	private double playbackSpeed = 1;
 	private Vec3f lastScreenPos;
+	private static final float DRIBBLE_LISTENER_GAP = 10;
+	private float lastDribbleStopTime = 0;
+	private float time = 0;
 
 	public boolean isEnabled()
 	{
@@ -128,8 +131,8 @@ public class LiveDirectorCamera implements StatisticsParser.StatisticsParserList
 				new CameraSetting(
 						new Vec3f(0, aerialHeight, -PITCH_SIDE_DISTANCE_MULTIPLIER * fw), new Vec2f(-35, 180)),
 				// GOAL_KICK camera
-				new CameraSetting(new Vec3f(((fl / 2) + 2.4f) * teamMultiplier, 0.5f, -3.4f),
-						new Vec2f(8, 90 * teamMultiplier + 35 * teamMultiplier)),
+				new CameraSetting(new Vec3f(((fl / 2) + 2.4f) * teamMultiplier, -2.5f, -4.4f),
+						new Vec2f(30, 90 * teamMultiplier + 65 * teamMultiplier)),
 				// CORNER camera
 				new CameraSetting(new Vec3f(((fl / 2) - 2) * teamMultiplier * -1, aerialHeight / 2, -fw / 2 - 3),
 						new Vec2f(-30, 180 - 15 * teamMultiplier * -1))};
@@ -161,7 +164,7 @@ public class LiveDirectorCamera implements StatisticsParser.StatisticsParserList
 	private void handleGoalKickFeed()
 	{
 		Vec3f cameraTargetPosition = cameras[CameraType.GOAL_KICK.index].getPosition().clone();
-		System.out.println("camera default position:" + cameraTargetPosition);
+		//		System.out.println("camera default position:" + cameraTargetPosition);
 		cameraTargetPosition.add(Vec3f.unitY().times(3));
 		Vec2f cameraTargetRotation = cameras[CameraType.GOAL_KICK.index].getRotation().clone();
 		cameraTargetRotation.add(Vec2f.unitX().times(-20));
@@ -251,7 +254,7 @@ public class LiveDirectorCamera implements StatisticsParser.StatisticsParserList
 	private Vec3f offsetTargetPosition(Vec3f targetPos)
 	{
 		Vec3f targetPosition = targetPos;
-		float maxDistance = gs.getFieldWidth() / 2;
+		float maxDistance = gs.getFieldWidth() / (target instanceof Agent ? 3 : 2);
 		Vec3f rayVector = cameras[CameraType.LIVE.index].getPosition().minus(targetPos);
 		rayVector.div(rayVector.length());
 		rayVector.mul(maxDistance);
@@ -287,27 +290,81 @@ public class LiveDirectorCamera implements StatisticsParser.StatisticsParserList
 	public void goalKickReceived(StatisticsParser.Statistic goalKickStatistic)
 	{
 		isLeftTeam = goalKickStatistic.team == 1;
-		System.out.println("Camera received goal kick for team " + (isLeftTeam ? "LEFT" : "RIGHT"));
+		//		System.out.println("Camera received goal kick for team " + (isLeftTeam ? "LEFT" : "RIGHT"));
 		changeCameraType(CameraType.GOAL_KICK);
 	}
 
 	@Override
 	public void cornerKickReceived(StatisticsParser.Statistic cornerKickStatistic)
 	{
-		System.out.println("Camera received corner kick for team " + (isLeftTeam ? "LEFT" : "RIGHT"));
-		isLeftTeam = cornerKickStatistic.team == 1;
-		changeCameraType(CameraType.CORNER);
+	}
+
+	@Override
+	public void dribbleStartReceived(Agent dribbler)
+	{
+		//		System.out.println("Camera received dribble start for team " + dribbler.getTeam().getName() + " agent "
+		//+ 						   dribbler.getID());
+		float dt = time - lastDribbleStopTime;
+		if (dt > DRIBBLE_LISTENER_GAP)
+			target = dribbler;
+	}
+
+	@Override
+	public void dribbleStopReceived()
+	{
+		//		System.out.println("Camera received dribble stop");
+		lastDribbleStopTime = time;
+		target = world.getBall();
+	}
+
+	@Override
+	public void kickInReceived(StatisticsParser.Statistic kickInStatistic)
+	{
+	}
+
+	@Override
+	public void offsideReceived(StatisticsParser.Statistic offSideStatistic)
+	{
+	}
+
+	@Override
+	public void foulReceived(StatisticsParser.Statistic foulStatistic)
+	{
+	}
+
+	@Override
+	public void freeKickReceived(StatisticsParser.Statistic freeKickStatistic)
+	{
 	}
 
 	@Override
 	public void playOnReceived()
 	{
-		System.out.println("Camera received play on");
+		//		System.out.println("Camera received play on");
 		changeCameraType(CameraType.LIVE);
+	}
+
+	@Override
+	public void gsMeasuresAndRulesChanged(GameState gs)
+	{
+	}
+
+	@Override
+	public void gsPlayStateChanged(GameState gs)
+	{
+	}
+
+	@Override
+	public void gsTimeChanged(GameState gs)
+	{
+		time = gs.getTime();
 	}
 
 	private void changeCameraType(CameraType type)
 	{
+		if (currentCameraType.equals(type)) {
+			return;
+		}
 		currentCameraType = type;
 		hasChangedCameraType = true;
 	}

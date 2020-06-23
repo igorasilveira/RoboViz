@@ -93,40 +93,19 @@ public class RVTester
 	/** Method for all static drawings */
 	private void renderStaticShapes() throws IOException
 	{
-		// draw 3D coordinate axes
-		drawLine(new float[] {0, 0, 0}, new float[] {3, 0, 0}, 3.0f, Color.RED, "static.axes");
-		drawLine(new float[] {0, 0, 0}, new float[] {0, 3, 0}, 3.0f, Color.GREEN, "static.axes");
-		drawLine(new float[] {0, 0, 0}, new float[] {0, 0, 3}, 3.0f, Color.BLUE, "static.axes");
+		drawLine(new float[] {-13, -10, 0}, new float[] {-13, 10, 0}, 3.0f, Color.YELLOW, "static.lines.field");
+		drawLine(new float[] {13, -10, 0}, new float[] {13, 10, 0}, 3.0f, Color.YELLOW, "static.lines.field");
 
-		// draw 1 meter lines on field
-		drawLine(new float[] {-9, -6, 0}, new float[] {9, -6, 0}, 1.0f, lightGreen, "static.lines.field");
-		drawLine(new float[] {-9, 6, 0}, new float[] {9, 6, 0}, 1.0f, lightGreen, "static.lines.field");
-		for (int i = 0; i <= 18; i++)
-			drawLine(new float[] {-9 + i, -6, 0}, new float[] {-9 + i, 6, 0}, 1.0f, lightGreen, "static.lines.field");
+		drawLine(new float[] {13, -2, 0}, new float[] {15, -2, 0}, 3.0f, Color.YELLOW, "static.lines.field");
+		drawLine(new float[] {13, 2, 0}, new float[] {15, 2, 0}, 3.0f, Color.YELLOW, "static.lines.field");
+		drawLine(new float[] {-13, -2, 0}, new float[] {-15, -2, 0}, 3.0f, Color.YELLOW, "static.lines.field");
+		drawLine(new float[] {-13, 2, 0}, new float[] {-15, 2, 0}, 3.0f, Color.YELLOW, "static.lines.field");
 
-		// draw some circles
-		drawCircle(new float[] {-5, 0}, 3, 2, Color.BLUE, "static.circles");
-		drawCircle(new float[] {5, 0}, 3, 2, Color.BLUE, "static.circles");
+		drawPolygon(
+				new float[][] {{13, -2, 0}, {15, -2, 0}, {13, 2, 0}, {15, 2, 0}}, Color.YELLOW, "static.lines.area");
 
-		// draw some spheres
-		drawSphere(new float[] {-5, 0, 2}, 0.5f, Color.PINK, "static.spheres");
-		drawSphere(new float[] {5, 0, 2}, 0.5f, Color.PINK, "static.spheres");
-
-		drawAnnotation("hello\nworld", new float[] {0, 0, 2}, Color.GREEN, "static.annotations");
-
-		// draw a polygon
-		float[][] v = {
-				{0, 0, 0},
-				{1, 0, 0},
-				{1, 1, 0},
-				{0, 3, 0},
-				{-2, -2, 0},
-		};
-		drawPolygon(v, new Color(1.0f, 1.0f, 1.0f, 0.5f), "static.polygons");
-
-		drawAgentAnnotation("testing", true, 1, Color.red);
-		drawAgentAnnotation("I'm agent #2", true, 2, Color.yellow);
-
+		drawPolygon(new float[][] {{-13, -2, 0}, {-15, -2, 0}, {-13, 2, 0}, {-15, 2, 0}}, Color.YELLOW,
+				"static.lines.area");
 		swapBuffers("static");
 	}
 
@@ -148,7 +127,7 @@ public class RVTester
 
 	public void runTest() throws IOException
 	{
-		animationTimer.start();
+		//		animationTimer.start();
 		renderStaticShapes();
 	}
 
@@ -209,10 +188,7 @@ public class RVTester
 	public static void main(String[] args) throws Exception
 	{
 		RVTester tester = new RVTester();
-		tester.runTest();
-		Thread.sleep(TEST_DURATION);
-		tester.drawAgentAnnotation(null, true, 1, Color.CYAN);
-		tester.animationTimer.stop();
-		tester.selectAgents();
+		while (true)
+			tester.runTest();
 	}
 }

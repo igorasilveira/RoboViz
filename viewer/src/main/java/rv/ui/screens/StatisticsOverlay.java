@@ -20,9 +20,8 @@ import com.jogamp.opengl.GL2;
 import com.jogamp.opengl.glu.GLU;
 import com.jogamp.opengl.util.awt.TextRenderer;
 import com.jogamp.opengl.util.gl2.GLUT;
-import java.awt.Font;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 import jsgl.jogl.view.Viewport;
@@ -44,7 +43,7 @@ public class StatisticsOverlay
 	private float screenHeight = 1;
 	private static final float fieldOverlayWidthFactor = 0.3f;
 	private int CURRENT_SCREEN = 0;
-	private static long DEPLOY_TIME = 0;
+	private static float DEPLOY_TIME = 0;
 	private static final int BAR_HEIGHT = 24;
 	private static final int NAME_WIDTH = 220;
 	private static final int SCORE_BOX_WIDTH = 5;
@@ -55,6 +54,8 @@ public class StatisticsOverlay
 	private static final int INFO_WIDTH = NAME_WIDTH * 2;
 	private static final float PANEL_SHOW_TIME = 8.0f;
 	private static final float PANEL_FADE_TIME = 2.0f;
+	private static final float PANEL_OFF_TIME = 60.0f;
+	private static float TRIGGER_POSSESSION_GAP = 60.0f;
 
 	private boolean isInitialized = false;
 
@@ -82,16 +83,50 @@ public class StatisticsOverlay
 	private float time;
 	private float prevTime;
 
+	private Map<String, Float> panelsLastTimes = new HashMap<>();
 	// Global cycle variables
-	private Agent agent = null;
 
 	private StatisticsPanel[] panels;
+	private PanelType panelType;
+	private boolean panelVisible = false;
+	private boolean isDeployUpdated = false;
+	private float TRIGGER_POSSESSION_TIME = 60.0f;
+	private boolean possessionDisplayed = false;
 
 	private final TextRenderer tr1;
 	private final TextRenderer tr2;
 
 	private final Viewer viewer;
 	private final StatisticsParser statisticsParser;
+
+	public enum PanelType {
+		OFFSIDE(0, "offside"),
+		FOUL(1, "foul"),
+		FREE_KICK(2, "free_kick"),
+		CORNER(4, "corner"),
+		KICK_IN(5, "kick_in"),
+		GOAL_KICK(6, "goal_kick"),
+		PASS(7, "pass"),
+		DRIBLE(8, "drible"),
+		POSSESSION(9, "possession"),
+		SHOT(10, "shot"),
+		SHOT_TARGET(11, "shot_target"),
+		GOAL(12, "goal");
+
+		private int index;
+		private String name;
+
+		PanelType(int index, String name)
+		{
+			this.index = index;
+			this.name = name;
+		}
+
+		public String toString()
+		{
+			return name;
+		}
+	}
 
 	public StatisticsOverlay(Viewer viewer)
 	{
@@ -103,50 +138,74 @@ public class StatisticsOverlay
 		prevTime = 0;
 
 		viewer.getWorldModel().getGameState().addListener((GameState.GameStateChangeListener) this);
+		panelType = null;
 
 		tr1 = new TextRenderer(new Font("Arial", Font.PLAIN, 22), true, false);
 		tr2 = new TextRenderer(new Font("Arial", Font.PLAIN, 20), true, false);
-
-		DEPLOY_TIME = (long) (System.currentTimeMillis() + 10 * 1000.f);
 	}
 
 	void render(GL2 gl, GLU glu, Viewport vp, GameState gs, int screenW, int screenH)
 	{
-		long currentTimeMillis = System.currentTimeMillis();
-		drawTimeLine(gl, glu, vp, gs);
+		//		drawTimeLine(gl, glu, vp, gs);
+		//		drawHeatMap(gl, glu, vp);
 
-		if (!shouldDisplayStatistics(currentTimeMillis, gs)) {
+		if (!shouldDisplayStatistics(gs)) {
+			isDeployUpdated = false;
+			panelVisible = false;
 			return;
 		}
 
+		checkPossessionPanel();
+		panelVisible = true;
+
 		float n = 1.0f;
-
-		buildPanels();
-		//				gs.clearStatistics();
-
-		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
+		float dt = time - DEPLOY_TIME;
 		float opacity = dt > PANEL_SHOW_TIME ? 1.0f - (dt - PANEL_SHOW_TIME) / PANEL_FADE_TIME : 1.0f;
-		drawPanel(gl, gs, screenW, screenH, n, opacity);
-		//		drawHeatMap(gl, glu, vp);
-		//		drawPossessionGraph(gl, glu, vp);
+
+		if (panelType != null) {
+			buildPanels();
+			drawPanel(gl, gs, screenW, screenH, n, opacity);
+			if (panelType.name().equals(PanelType.POSSESSION.name())) {
+				drawPossessionGraph(gl, opacity);
+				possessionDisplayed = true;
+			}
+		}
+
 		n += opacity;
+
+		if (!isDeployUpdated) {
+			DEPLOY_TIME = time;
+			isDeployUpdated = true;
+		}
 	}
 
-	private void drawPossessionGraph(GL2 gl, GLU glu, Viewport vp)
+	private void checkPossessionPanel()
+	{
+		if (time < TRIGGER_POSSESSION_TIME)
+			return;
+
+		updatePanelType(PanelType.POSSESSION);
+
+		if (possessionDisplayed) {
+			TRIGGER_POSSESSION_TIME += TRIGGER_POSSESSION_GAP;
+		}
+	}
+
+	private void drawPossessionGraph(GL2 gl, float opacity)
 	{
 		List<StatisticsParser.PossessionStatistic> possessionValuesOverTime =
 				statisticsParser.getPossessionValuesOverTime();
 		if (possessionValuesOverTime.isEmpty())
 			return;
 
-		int bottomLeftX = (int) (screenWidth - Y_PAD - GRAPH_WIDTH);
-		int bottomLeftY = (int) (screenHeight - 100 - GRAPH_HEIGHT);
+		int bottomLeftX = (int) (screenWidth - Y_PAD * 2 - GRAPH_WIDTH);
+		int bottomLeftY = (int) (screenHeight - 200 - GRAPH_HEIGHT);
 
 		int pSize = (int) (screenWidth * 0.003);
 
 		gl.glBegin(GL2.GL_QUADS);
 		// Background
-		gl.glColor4f(0.8f, 0.8f, 0.8f, 0.1f);
+		gl.glColor4f(0.8f, 0.8f, 0.8f, 0.1f + MathUtil.normalize(opacity, 0, 1, -0.1f, 0));
 		drawBox(gl, bottomLeftX, bottomLeftY, GRAPH_WIDTH, GRAPH_HEIGHT);
 		gl.glEnd();
 
@@ -167,7 +226,7 @@ public class StatisticsOverlay
 		int localGraphHeight = graphTopRightY - graphBottomLeftY;
 
 		gl.glBegin(GL2.GL_QUADS);
-		gl.glColor4f(0, 0, 0, 0.2f);
+		gl.glColor4f(0, 0, 0, 0.2f + MathUtil.normalize(opacity, 0, 1, -0.2f, 0));
 		drawBox(gl, graphBottomLeftX, graphBottomLeftY, localGraphWidth, localGraphHeight);
 		gl.glEnd();
 
@@ -204,7 +263,8 @@ public class StatisticsOverlay
 
 				gl.glColor4f(viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[0],
 						viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[1],
-						viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[2], 0.5f);
+						viewer.getWorldModel().getLeftTeam().getColorMaterial().getDiffuse()[2],
+						0.5f + MathUtil.normalize(opacity, 0, 1, -0.5f, 0));
 
 				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth,
 						graphBottomLeftY + prevStatistic.leftPossession * localGraphHeight);
@@ -222,7 +282,8 @@ public class StatisticsOverlay
 
 				gl.glColor4f(viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[0],
 						viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[1],
-						viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[2], 0.5f);
+						viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse()[2],
+						0.5f + MathUtil.normalize(opacity, 0, 1, -0.5f, 0));
 
 				gl.glVertex2f(graphBottomLeftX + (prevStatistic.time / 600) * localGraphWidth,
 						graphBottomLeftY + prevStatistic.leftPossession * localGraphHeight);
@@ -239,7 +300,7 @@ public class StatisticsOverlay
 			gl.glLineWidth(2);
 
 			gl.glBegin(GL2.GL_LINES);
-			gl.glColor4f(1f, 1f, 1f, 0.2f);
+			gl.glColor4f(1f, 1f, 1f, 0.2f + MathUtil.normalize(opacity, 0, 1, -0.2f, 0));
 			gl.glVertex3f(graphBottomLeftX, graphBottomLeftY + 0.5f * localGraphHeight, 0);
 
 			gl.glVertex3f(graphBottomLeftX + localGraphWidth, graphBottomLeftY + 0.5f * localGraphHeight, 0);
@@ -448,6 +509,13 @@ public class StatisticsOverlay
 
 	private void buildPanels()
 	{
+		ArrayList<String> titlesOne = new ArrayList<String>();
+		ArrayList<List<String>> valuesOne = new ArrayList<>();
+
+		// Possession
+		List<StatisticsParser.PossessionStatistic> possessionValuesOverTime =
+				statisticsParser.getPossessionValuesOverTime();
+
 		//		 Offside
 		List<StatisticsParser.Statistic> leftOffsideStatistics =
 				statisticsParser.getStatisticList(StatisticsParser.StatisticType.OFFSIDE.toString())
@@ -497,43 +565,86 @@ public class StatisticsOverlay
 						.filter(statistic -> statistic.team == 1)
 						.collect(Collectors.toList());
 
-		ArrayList<String> titlesOne = new ArrayList<String>(
-				Arrays.asList("Fouls", "Offsides", "Corners", "Free kicks", "Goal Kicks", "Kick ins", "Dribles"));
-		ArrayList<List<String>> valuesOne = new ArrayList<>();
+		// Shots
+		List<StatisticsParser.Statistic> leftShotsStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.SHOT.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
+						.collect(Collectors.toList());
 
-		valuesOne.add(Arrays.asList(String.valueOf(leftFoulStatistics.size()),
-				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.FOUL.name()).size() -
-							   leftFoulStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftOffsideStatistics.size()),
-				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.OFFSIDE.name()).size() -
-							   leftOffsideStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftCornerStatistics.size()),
-				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.CORNER.name()).size() -
-							   leftCornerStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftFreeKickStatistics.size()),
-				String.valueOf(
-						statisticsParser.getStatisticList(StatisticsParser.StatisticType.FREE_KICK.name()).size() -
-						leftFreeKickStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftGoalKickStatistics.size()),
-				String.valueOf(
-						statisticsParser.getStatisticList(StatisticsParser.StatisticType.GOAL_KICK.name()).size() -
-						leftGoalKickStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftKickInStatistics.size()),
-				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.KICK_IN.name()).size() -
-							   leftKickInStatistics.size())));
-		valuesOne.add(Arrays.asList(String.valueOf(leftDribleStatistics.size()),
-				String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.DRIBLE.name()).size() -
-							   leftDribleStatistics.size())));
+		// Shots Target
+		List<StatisticsParser.Statistic> leftShotsTargetStatistics =
+				statisticsParser.getStatisticList(StatisticsParser.StatisticType.SHOT_TARGET.name())
+						.stream()
+						.filter(statistic -> statistic.team == 1)
+						.collect(Collectors.toList());
 
-		// Possession
-		List<StatisticsParser.PossessionStatistic> possessionValuesOverTime =
-				statisticsParser.getPossessionValuesOverTime();
-		if (!possessionValuesOverTime.isEmpty()) {
-			StatisticsParser.PossessionStatistic lastStatistic =
-					possessionValuesOverTime.get(possessionValuesOverTime.size() - 1);
-			titlesOne.add("Possession");
-			valuesOne.add(Arrays.asList(Math.round(lastStatistic.leftPossession * 100) + "%",
-					Math.round((1 - lastStatistic.leftPossession) * 100) + "%"));
+		switch (panelType) {
+		case POSSESSION:
+			if (!possessionValuesOverTime.isEmpty()) {
+				StatisticsParser.PossessionStatistic lastStatistic =
+						possessionValuesOverTime.get(possessionValuesOverTime.size() - 1);
+				titlesOne.add("Possession");
+				valuesOne.add(Arrays.asList(Math.round(lastStatistic.leftPossession * 100) + "%",
+						Math.round((1 - lastStatistic.leftPossession) * 100) + "%"));
+			}
+			break;
+		case OFFSIDE:
+			valuesOne.add(Arrays.asList(String.valueOf(leftOffsideStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.OFFSIDE.name()).size() -
+							leftOffsideStatistics.size())));
+			titlesOne.add("Offsides");
+			break;
+		case CORNER:
+			valuesOne.add(Arrays.asList(String.valueOf(leftCornerStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.CORNER.name()).size() -
+							leftCornerStatistics.size())));
+			titlesOne.add("Corners");
+			break;
+		case FOUL:
+		case FREE_KICK:
+			valuesOne.add(Arrays.asList(String.valueOf(leftFoulStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.FOUL.name()).size() -
+							leftFoulStatistics.size())));
+			titlesOne.add("Fouls");
+			valuesOne.add(Arrays.asList(String.valueOf(leftFreeKickStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.FREE_KICK.name()).size() -
+							leftFreeKickStatistics.size())));
+			titlesOne.add("Free Kicks");
+			break;
+		case KICK_IN:
+			valuesOne.add(Arrays.asList(String.valueOf(leftKickInStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.KICK_IN.name()).size() -
+							leftKickInStatistics.size())));
+			titlesOne.add("Kick Ins");
+			break;
+		case DRIBLE:
+			valuesOne.add(Arrays.asList(String.valueOf(leftDribleStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.DRIBLE.name()).size() -
+							leftDribleStatistics.size())));
+			titlesOne.add("Dribbles");
+			break;
+		case SHOT:
+		case SHOT_TARGET:
+			valuesOne.add(Arrays.asList(String.valueOf(leftShotsStatistics.size()),
+					String.valueOf(
+							statisticsParser.getStatisticList(StatisticsParser.StatisticType.SHOT.name()).size() -
+							leftShotsStatistics.size())));
+			titlesOne.add("Shots");
+			valuesOne.add(Arrays.asList(String.valueOf(leftShotsTargetStatistics.size()),
+					String.valueOf(statisticsParser.getStatisticList(StatisticsParser.StatisticType.SHOT_TARGET.name())
+										   .size() -
+								   leftShotsTargetStatistics.size())));
+			titlesOne.add("On Target");
+			break;
+		default:
+			break;
 		}
 
 		StatisticsPanel statisticsPanelOne = new StatisticsPanel(titlesOne, valuesOne);
@@ -546,13 +657,13 @@ public class StatisticsOverlay
 		int y = screenH - TOP_SCREEN_OFFSET;
 		int x = screenW - INFO_WIDTH - SIDE_SCREEN_OFFSET;
 
-		drawTeamNames(gl, gs, screenW, screenH);
+		drawTeamNames(gl, gs, screenW, screenH, opacity);
 
 		drawStatistics(gl, x, y - (int) (INFO_WIDTH * (n - 1)), INFO_WIDTH, INFO_WIDTH, screenW, screenH,
-				1.0f); // CHANGE ME
+				opacity); // CHANGE ME
 	}
 
-	private void drawTeamNames(GL2 gl, GameState gs, int screenW, int screenH)
+	private void drawTeamNames(GL2 gl, GameState gs, int screenW, int screenH, float opacity)
 	{
 		int y = screenH - TOP_SCREEN_OFFSET;
 		int x = screenW - INFO_WIDTH - SIDE_SCREEN_OFFSET;
@@ -573,15 +684,15 @@ public class StatisticsOverlay
 		float[] rc = viewer.getWorldModel().getRightTeam().getColorMaterial().getDiffuse();
 
 		gl.glBegin(GL2.GL_QUADS);
-		gl.glColor4f(0, 0, 0, 0.5f);
+		gl.glColor4f(0, 0, 0, 0.5f + MathUtil.normalize(opacity, 0, 1, -0.5f, 0));
 		drawBox(gl, x - 3, y - 3, 2 * NAME_WIDTH + SCORE_BOX_WIDTH, BAR_HEIGHT + 6);
 		drawBox(gl, x - 3, y - 3, 2 * NAME_WIDTH + SCORE_BOX_WIDTH, BAR_HEIGHT * 0.6f);
 
-		gl.glColor4f(lc[0] * 0.8f, lc[1] * 0.8f, lc[2] * 0.8f, 0.65f);
+		gl.glColor4f(lc[0] * 0.8f, lc[1] * 0.8f, lc[2] * 0.8f, 0.65f + MathUtil.normalize(opacity, 0, 1, -0.65f, 0));
 		drawBox(gl, x, y, NAME_WIDTH, BAR_HEIGHT);
-		gl.glColor4f(1, .3f, .3f, 0.65f);
+		gl.glColor4f(1, .3f, .3f, 0.65f + MathUtil.normalize(opacity, 0, 1, -0.5f, 0));
 
-		gl.glColor4f(rc[0] * 0.8f, rc[1] * 0.8f, rc[2] * 0.8f, 0.65f);
+		gl.glColor4f(rc[0] * 0.8f, rc[1] * 0.8f, rc[2] * 0.8f, 0.65f + MathUtil.normalize(opacity, 0, 1, -0.65f, 0));
 		drawBox(gl, x + NAME_WIDTH, y, NAME_WIDTH, BAR_HEIGHT);
 		gl.glEnd();
 
@@ -634,14 +745,13 @@ public class StatisticsOverlay
 		tr2.endRendering();
 	}
 
-	public static boolean shouldDisplayStatistics(long currentTimeMillis, GameState gs)
+	public boolean shouldDisplayStatistics(GameState gs)
 	{
 		if (!gs.isInitialized() || !gs.isPlaying())
 			return false;
-		return true;
-		//		float dt = (currentTimeMillis - DEPLOY_TIME) / 1000.0f;
-		//		System.out.println(dt);
-		//		return dt < PANEL_SHOW_TIME + PANEL_FADE_TIME;
+
+		float dt = this.time - DEPLOY_TIME;
+		return dt < PANEL_SHOW_TIME + PANEL_FADE_TIME;
 	}
 
 	static void drawBox(GL2 gl, float x, float y, float w, float h)
@@ -658,6 +768,24 @@ public class StatisticsOverlay
 		gl.glVertex3f(x + w, 1, z);
 		gl.glVertex3f(x + w, 1, z + h);
 		gl.glVertex3f(x, 1, z + h);
+	}
+
+	private void updatePanelType(PanelType panelType)
+	{
+		if (!panelVisible) {
+			if (this.panelType == null || !panelType.name.equals(this.panelType.name)) {
+				this.panelType = panelType;
+			}
+
+			float lastPanelTime = panelsLastTimes.getOrDefault(this.panelType.name, 0f);
+			if (time - lastPanelTime < PANEL_OFF_TIME) {
+				return;
+			}
+
+			DEPLOY_TIME = time;
+			panelsLastTimes.put(this.panelType.name, DEPLOY_TIME);
+			System.out.println(panelsLastTimes.toString());
+		}
 	}
 
 	@Override
@@ -681,17 +809,54 @@ public class StatisticsOverlay
 	@Override
 	public void goalReceived(StatisticsParser.Statistic statistic)
 	{
-		System.out.println("Goal received");
+		updatePanelType(PanelType.GOAL);
 	}
 
 	@Override
 	public void goalKickReceived(StatisticsParser.Statistic goalKickStatistic)
 	{
+		updatePanelType(PanelType.GOAL_KICK);
 	}
 
 	@Override
 	public void cornerKickReceived(StatisticsParser.Statistic cornerKickStatistic)
 	{
+		updatePanelType(PanelType.CORNER);
+	}
+
+	@Override
+	public void dribbleStartReceived(Agent dribbler)
+	{
+	}
+
+	@Override
+	public void dribbleStopReceived()
+	{
+		updatePanelType(PanelType.DRIBLE);
+	}
+
+	@Override
+	public void kickInReceived(StatisticsParser.Statistic kickInStatistic)
+	{
+		updatePanelType(PanelType.KICK_IN);
+	}
+
+	@Override
+	public void offsideReceived(StatisticsParser.Statistic offSideStatistic)
+	{
+		updatePanelType(PanelType.OFFSIDE);
+	}
+
+	@Override
+	public void foulReceived(StatisticsParser.Statistic foulStatistic)
+	{
+		updatePanelType(PanelType.FOUL);
+	}
+
+	@Override
+	public void freeKickReceived(StatisticsParser.Statistic freeKickStatistic)
+	{
+		updatePanelType(PanelType.FREE_KICK);
 	}
 
 	@Override

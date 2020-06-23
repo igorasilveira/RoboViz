@@ -25,3 +25,5 @@ roboviz.bat
 /viewer/bin
 /viewer/build
 .clang-format
+
+java_*.hprof

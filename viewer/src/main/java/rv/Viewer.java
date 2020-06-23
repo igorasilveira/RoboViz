@@ -261,7 +261,7 @@ public class Viewer
 			System.err.println(error);
 			logFile = null;
 		}
-
+		System.out.println("logmode " + logMode);
 		if (logMode)
 			mode = Mode.LOGFILE;
 	}
@@ -459,6 +459,7 @@ public class Viewer
 	public static void main(String[] args)
 	{
 		final Configuration config = Configuration.loadFromFile();
+		System.out.println(args.toString());
 
 		GLProfile glp = GLProfile.get(GLProfile.GL2);
 		final GLCapabilities caps = new GLCapabilities(glp);

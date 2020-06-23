@@ -52,19 +52,19 @@ public class BallEstimator
 		found3 = found4 = found5 = false;
 
 		for (int i = 1; i < ballPosQueue.size(); i++) {
-			if (!found3 && refTime - ballPosTimeQueue.get(i) > 0.06 * 2.5) { // three vision cycles
+			if (!found3 && refTime - ballPosTimeQueue.get(i) > 0.04 * 2.5) { // three cycles
 				refPos3 = ballPosQueue.get(i);
 				refTime3 = ballPosTimeQueue.get(i);
 				indRefTime3 = i;
 				found3 = true;
 			}
-			if (!found4 && refTime - ballPosTimeQueue.get(i) > 0.06 * 3.5) { // four vision cycles
+			if (!found4 && refTime - ballPosTimeQueue.get(i) > 0.04 * 3.5) { // four cycles
 				refPos4 = ballPosQueue.get(i);
 				refTime4 = ballPosTimeQueue.get(i);
 				indRefTime4 = i;
 				found4 = true;
 			}
-			if (!found5 && refTime - ballPosTimeQueue.get(i) > 0.06 * 4.5) { // five vision cycles
+			if (!found5 && refTime - ballPosTimeQueue.get(i) > 0.04 * 4.5) { // five cycles
 				refPos5 = ballPosQueue.get(i);
 				refTime5 = ballPosTimeQueue.get(i);
 				indRefTime5 = i;
@@ -76,9 +76,9 @@ public class BallEstimator
 			refTimeAway = refTime;
 		}
 
-		System.out.println("Best update size " + ballPosQueue.size() + " refPos " + refPos + " refTime " + refTime +
-						   " refPos3 " + refPos3 + " refTime3 " + refTime3 + " refPosAway " + refPosAway +
-						   " refTime3 " + refTimeAway + "\n");
+		//		System.out.println("Best update size " + ballPosQueue.size() + " refPos " + refPos + " refTime " + refTime
+		//+ 						   " refPos3 " + refPos3 + " refTime3 " + refTime3 + " refPosAway " + refPosAway + 						   " refTime3 " + refTimeAway +
+		//"\n");
 	}
 
 	Vec3f estimatedVel(float relTime)

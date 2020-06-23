@@ -6,7 +6,6 @@ import java.util.stream.Collectors;
 import jsgl.math.vector.Vec3f;
 import rv.Viewer;
 import rv.util.MatrixUtil;
-import rv.util.jogl.VectorUtil;
 import rv.world.Team;
 import rv.world.WorldModel;
 import rv.world.objects.Agent;
@@ -15,10 +14,15 @@ import rv.world.objects.Ball;
 public class StatisticsParser implements GameState.ServerMessageReceivedListener, GameState.GameStateChangeListener
 {
 	public interface StatisticsParserListener {
-		/** Called when a goal is received */
 		void goalReceived(Statistic goalStatistic);
 		void goalKickReceived(Statistic goalKickStatistic);
 		void cornerKickReceived(Statistic cornerKickStatistic);
+		void dribbleStartReceived(Agent dribbler);
+		void dribbleStopReceived();
+		void kickInReceived(Statistic kickInStatistic);
+		void offsideReceived(Statistic offSideStatistic);
+		void foulReceived(Statistic foulStatistic);
+		void freeKickReceived(Statistic freeKickStatistic);
 		void playOnReceived();
 	}
 
@@ -122,18 +126,22 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	// Refactor into a module
 
 	private Agent prevAgent = null;
-	private Vec3f prevBallPosition;
-	private Vec3f prevBallVelocity;
+	private Agent prevDribbler = null;
+	private double prevBallVelocity = 0;
+	private double kickerDistanceTrigger = 1;
 	private float velocityDeltaTrigger = 0.01f;
 	private float degreeDeltaTrigger = 3f;
+	private float shotDistanceTrigger = 2f;
 
-	private float kickTimeGap = 2f;
+	private float kickTimeGap = 1f;
 	private float kickTimeDelta = 0f;
 
-	private float dribleTimeGap = 2f;
-	private float dribleTimeDelta = 0f;
-	private int dribleMinTouches = 2;
-	private int prevDribleTouches = 0;
+	private float dribbleTimeGap = 1f;
+	private float dribbleTimeDelta = 0f;
+	private int dribbleMinTouches = 2;
+	private int dribbleMinDistance = 1;
+	private int prevDribbleTouches = 0;
+	private Vec3f dribbleInitialPosition = null;
 
 	// End of kick detection variables
 
@@ -151,16 +159,16 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 
 	private final List<StatisticsParserListener> spListeners = new CopyOnWriteArrayList<>();
 
+	private BallEstimator ballEstimator;
+
 	public StatisticsParser(WorldModel world, Viewer viewer)
 	{
 		this.viewer = viewer;
 		this.world = world;
+		this.ballEstimator = new BallEstimator(viewer);
 
 		time = 0;
 		prevTime = 0;
-
-		prevBallPosition = new Vec3f(0, 0, 0);
-		prevBallVelocity = new Vec3f(0, 0, 0);
 
 		statistics = new HashMap<>();
 		for (StatisticType type : StatisticType.values()) {
@@ -220,6 +228,8 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	{
 		boolean isGoal = false;
 		boolean isKickIn = false;
+		boolean isFoul = false;
+		boolean isOffside = false;
 		boolean isGoalKick = false;
 		boolean isFreeKick = false;
 		boolean isCornerKick = false;
@@ -251,12 +261,14 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 							statistic.type = StatisticsParser.StatisticType.OFFSIDE;
 							statistic.team = 1;
 							statistic.index = Integer.parseInt(atoms[1]);
+							isOffside = true;
 							System.out.println("OFFSIDE 1" + Arrays.toString(atoms));
 							break;
 						case GameState.OFFSIDE_RIGHT:
 							statistic.type = StatisticsParser.StatisticType.OFFSIDE;
 							statistic.team = 2;
 							statistic.index = Integer.parseInt(atoms[1]);
+							isOffside = true;
 							System.out.println("OFFSIDE 2" + Arrays.toString(atoms));
 							break;
 						case GameState.KICK_IN_LEFT:
@@ -339,7 +351,8 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 					statistic.type = StatisticsParser.StatisticType.FOUL;
 					statistic.team = Integer.parseInt(atoms[3]);
 					statistic.agentID = Integer.parseInt(atoms[4]);
-					System.out.println("FOUL " + Arrays.toString(atoms));
+					isFoul = true;
+					// System.out.println("FOUL " + Arrays.toString(atoms));
 					break;
 				}
 
@@ -366,6 +379,26 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 						l.cornerKickReceived(statistic);
 					}
 				}
+				if (isFreeKick) {
+					for (StatisticsParserListener l : spListeners) {
+						l.freeKickReceived(statistic);
+					}
+				}
+				if (isKickIn) {
+					for (StatisticsParserListener l : spListeners) {
+						l.kickInReceived(statistic);
+					}
+				}
+				if (isOffside) {
+					for (StatisticsParserListener l : spListeners) {
+						l.offsideReceived(statistic);
+					}
+				}
+				if (isFoul) {
+					for (StatisticsParserListener l : spListeners) {
+						l.foulReceived(statistic);
+					}
+				}
 			}
 		}
 	}
@@ -385,50 +418,46 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 		try {
 			parseStatistics();
 			detectPossession(gs);
-			//			detectKick(gs);
-			storePositions(gs);
+			detectKick();
+			storePositions();
 
-			Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
-
-			Vec3f currentBallVelocity =
-					VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
-			prevBallPosition = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
 			prevAgent = agent;
 
 			float cycleTime = time - prevTime;
 
-			dribleTimeDelta += cycleTime;
-			kickTimeDelta += cycleTime;
+			dribbleTimeDelta += cycleTime;
+			//			kickTimeDelta += cycleTime;
 			possessionStoreDelta += cycleTime;
 			possessionGraphDelta += cycleTime;
 			positionStoreDelta += cycleTime;
 		} catch (NullPointerException e) {
-			System.err.println("Initializing statistics");
+			System.err.println("Initializing statistics " + e.getMessage());
 		}
 	}
 
-	private void storePositions(GameState gs)
+	private void storePositions()
 	{
-		if (positionStoreDelta >= positionStoreGap) {
-			Ball ball = world.getBall();
-			Team leftTeam = world.getLeftTeam();
-			Team rightTeam = world.getRightTeam();
+		if (positionStoreDelta < positionStoreGap)
+			return;
 
-			// Ball
-			int BallXPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldLength / 2f - ball.getPosition().x) - 1, 0, (int) fieldLength - 1);
-			int BallYPosition = MatrixUtil.normalizeIndex(
-					Math.round(fieldWidth / 2f - ball.getPosition().z) - 1, 0, (int) fieldWidth - 1);
-			ballPositions[BallYPosition][BallXPosition] += 1;
+		positionStoreDelta = 0;
+		Ball ball = world.getBall();
+		Team leftTeam = world.getLeftTeam();
+		Team rightTeam = world.getRightTeam();
 
-			// Left Team
-			//			storeTeamPositions(leftTeam, fieldLength, fieldWidth, leftTeamPositions);
-			// Right Team
-			//			storeTeamPositions(rightTeam, fieldLength, fieldWidth, rightTeamPositions);
+		// Ball
+		int BallXPosition = MatrixUtil.normalizeIndex(
+				Math.round(fieldLength / 2f - ball.getPosition().x) - 1, 0, (int) fieldLength - 1);
+		int BallYPosition = MatrixUtil.normalizeIndex(
+				Math.round(fieldWidth / 2f - ball.getPosition().z) - 1, 0, (int) fieldWidth - 1);
+		ballPositions[BallYPosition][BallXPosition] += 1;
 
-			positionStoreDelta = 0;
-			positionsCount++;
-		}
+		// Left Team
+		//			storeTeamPositions(leftTeam, fieldLength, fieldWidth, leftTeamPositions);
+		// Right Team
+		//			storeTeamPositions(rightTeam, fieldLength, fieldWidth, rightTeamPositions);
+
+		positionsCount++;
 	}
 
 	private void storeTeamPositions(Team team, float fieldLength, float fieldWidth, int[][] teamPositions)
@@ -444,107 +473,166 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 		}
 	}
 
-	private void detectKick(GameState gs)
+	private void detectKick()
 	{
 		Ball ball = world.getBall();
-		Team leftTeam = world.getLeftTeam();
-		Team rightTeam = world.getRightTeam();
 
-		Vec3f currentBallVelocityExtracted = new Vec3f(ball.getPosition().x, ball.getPosition().y, 0);
+		if (ball == null || agent == null)
+			return;
 
-		Vec3f currentBallVelocity =
-				VectorUtil.calculateVelocity(currentBallVelocityExtracted.minus(prevBallPosition), time - prevTime);
+		if (checkOutOfBounds(agent)) {
+			for (StatisticsParserListener l : spListeners) {
+				l.dribbleStopReceived();
+			}
+		}
 
-		Vec3f velocityDelta = currentBallVelocity.minus(prevBallVelocity);
+		Vec3f currentBallVelocity = ballEstimator.estimatedVel4(0.0f);
+		Vec3f ballPosition = ball.getPosition();
+		double roundedCurrentVelocityDelta = (double) Math.round(currentBallVelocity.length() * 1000) / 1000;
 
-		//
-		if (((Math.abs(velocityDelta.length()) > velocityDeltaTrigger) ||
-					Math.abs(VectorUtil.calculateAngle(prevBallVelocity, currentBallVelocity)) > degreeDeltaTrigger) &&
-				prevTime < time) {
+		//		System.out.println("-------------------- ");
+		int minutes = (int) Math.floor(time / 60.0);
+		int seconds = (int) (time - minutes * 60);
+		String timeText = String.format(Locale.US, "%02d:%02d", minutes, seconds);
+		//		System.out.println("time " + timeText);
+		//		System.out.println("velocity " + roundedCurrentVelocityDelta);
+		//		System.out.println("distance " + ballPosition.minus(agent.getPosition()).length());
+		if (roundedCurrentVelocityDelta > prevBallVelocity && prevTime < time &&
+				ballPosition.minus(agent.getPosition()).length() < kickerDistanceTrigger &&
+				roundedCurrentVelocityDelta > velocityDeltaTrigger) {
 			// Drible detection
-			detectDrible();
-			detectShot(gs, velocityDelta);
-		}
-
-		//            if (prevBallPosition.minus(ball.getPosition()).length() < 0.01f) {
-		//                System.out.println("Ball same position");
-		//            }
-	}
-
-	private void detectShot(GameState gs, Vec3f currentBallVelocity)
-	{
-		boolean leftPossession = agent.getTeam().getID() == world.getLeftTeam().getID();
-		if (Math.abs(agent.getPosition().x) >= fieldLength / 4 &&
-				(leftPossession ? 1 : -1) * agent.getPosition().x > 0) {
-			if (currentBallVelocity.length() > 10) {
-				float goalLineX = (leftPossession ? -1 : 1) * fieldLength / 2;
-				float yCoordinate =
-						agent.getPosition().y +
-						(currentBallVelocity.y * ((goalLineX - agent.getPosition().x) * currentBallVelocity.x));
-				float goalWidthEnd = gs.getGoalWidth() / 2;
-				StatisticType typeShot =
-						Math.abs(yCoordinate) < goalWidthEnd ? StatisticType.SHOT_TARGET : StatisticType.SHOT;
-
-				//				this.statistics.add(new Statistic(time, typeShot, agent.getTeam().getID(),
-				// agent.getID()));
-			}
-		}
-	}
-
-	private void detectDrible()
-	{
-		if (prevTime < time && dribleTimeDelta >= dribleTimeGap) {
-			//			System.out.println("Agent team: " + agent.getTeam().getID());
-			//			System.out.println("Prev Agent team: " + prevAgent.getTeam().getID());
-			//			System.out.println("Agent ID: " + agent.getID());
-			//			System.out.println("Prev Agent ID: " + prevAgent.getID());
+			//			System.out.println("KICK " + new Random().nextInt((1000 - 1) + 1) + 1);
+			//			boolean hasShot = detectShot();
 			//
-			//			System.out.println("Dribles " + prevDribleTouches);
-			if (agent.getTeam().getID() == prevAgent.getTeam().getID() && agent.getID() == prevAgent.getID()) {
-				prevDribleTouches++;
+			//			if (hasShot) {
+			//				return;
+			//			}
+
+			detectDribble();
+		}
+
+		prevBallVelocity = roundedCurrentVelocityDelta;
+	}
+
+	private boolean checkOutOfBounds(Agent agent)
+	{
+		Vec3f agentPosition = agent.getPosition();
+		return Math.abs(agentPosition.x) > fieldLength / 2 || Math.abs(agentPosition.z) > fieldWidth / 2;
+	}
+
+	private boolean detectShot()
+	{
+		int leftPossessionMultiplier = agent.getTeam().getID() == world.getLeftTeam().getID() ? -1 : 1;
+		Vec3f ballFinalPos = ballEstimator.estimatedFinalPosAway();
+		//
+		//		if (ballFinalPos.x * leftPossessionMultiplier <= world.getBall().getPosition().x *
+		// leftPossessionMultiplier) { 			return false;
+		//		}
+
+		System.out.println("player post + " + agent.getPosition().toString());
+		System.out.println("Last post + " + ballEstimator.estimatedFinalPos4().toString());
+		//		if (leftPossessionMultiplier * agent.getPosition().x > 0) {
+		float goalLineX = leftPossessionMultiplier * fieldLength / 2;
+		float goalLineDistanceX = goalLineX - leftPossessionMultiplier * shotDistanceTrigger;
+
+		Vec3f shotVector = ballFinalPos.minus(agent.getPosition());
+		float goalCenterZ = fieldWidth / 2;
+		float shotAreaEnd = goalCenterZ + world.getGameState().getGoalWidth() / 2 + shotDistanceTrigger;
+
+		if (ballFinalPos.x * leftPossessionMultiplier >= goalLineDistanceX * leftPossessionMultiplier) {
+			Statistic statistic = new Statistic(time, StatisticType.SHOT, agent.getTeam().getID(), agent.getID());
+
+			float zCoordinate = agent.getPosition().y +
+								(shotVector.y * ((goalLineDistanceX - agent.getPosition().x) * shotVector.x));
+
+			if (-shotAreaEnd <= zCoordinate && zCoordinate <= shotAreaEnd) {
+				statistic.type = StatisticType.SHOT_TARGET;
 			} else {
-				if (prevDribleTouches >= dribleMinTouches) {
-					//					this.addStatistic(new Statistic(time, StatisticType.DRIBLE,
-					//							agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2,
-					// agent.getID()));
+				zCoordinate =
+						agent.getPosition().y + (shotVector.y * ((goalLineX - agent.getPosition().x) * shotVector.x));
+
+				if (-shotAreaEnd <= zCoordinate && zCoordinate <= shotAreaEnd) {
+					statistic.type = StatisticType.SHOT_TARGET;
 				}
-				prevDribleTouches = 0;
 			}
-			dribleTimeDelta = 0;
+
+			System.out.println("DETECTED SHOT TYPE " + statistic.type.name);
+			addStatistic(statistic.type.name(), statistic);
+			return true;
+		}
+		return false;
+	}
+
+	private void detectDribble()
+	{
+		if (prevDribbler == null)
+			prevDribbler = agent;
+
+		if (agent.getTeam().getID() == prevDribbler.getTeam().getID() && agent.getID() == prevDribbler.getID()) {
+			if (dribbleTimeDelta < dribbleTimeGap) {
+				return;
+			}
+
+			if (dribbleInitialPosition == null) {
+				dribbleInitialPosition = world.getBall().getPosition();
+			}
+			prevDribbleTouches++;
+
+			if (prevDribbleTouches == 1) {
+				for (StatisticsParserListener spl : spListeners) {
+					spl.dribbleStartReceived(prevDribbler);
+				}
+			}
+			dribbleTimeDelta = 0;
+		} else {
+			for (StatisticsParserListener spl : spListeners) {
+				spl.dribbleStopReceived();
+			}
+			float dribbleDistance = world.getBall().getPosition().minus(dribbleInitialPosition).length();
+			if (prevDribbleTouches >= dribbleMinTouches && dribbleDistance >= dribbleMinDistance) {
+				dribbleInitialPosition = null;
+				this.addStatistic(StatisticType.DRIBLE.name(),
+						new Statistic(time, StatisticType.DRIBLE,
+								prevDribbler.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2,
+								prevDribbler.getID()));
+			}
+			prevDribbler = agent;
+			prevDribbleTouches = 0;
 		}
 	}
 
 	private void detectPossession(GameState gs)
 	{
-		if (possessionStoreDelta >= possessionStoreGap) {
-			Ball ball = world.getBall();
-			Team leftTeam = world.getLeftTeam();
-			Team rightTeam = world.getRightTeam();
+		if (possessionStoreDelta < possessionStoreGap)
+			return;
 
-			minimumDistanceToBall = 1000;
-			agent = null;
+		possessionStoreDelta = 0;
+		Ball ball = world.getBall();
+		Team leftTeam = world.getLeftTeam();
+		Team rightTeam = world.getRightTeam();
 
-			for (Agent player : leftTeam.getAgents()) {
-				float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
-				if (distanceToBall < minimumDistanceToBall) {
-					minimumDistanceToBall = distanceToBall;
-					agent = player;
-				}
+		minimumDistanceToBall = 1000;
+		agent = null;
+
+		for (Agent player : leftTeam.getAgents()) {
+			float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
+			if (distanceToBall < minimumDistanceToBall) {
+				minimumDistanceToBall = distanceToBall;
+				agent = player;
 			}
-
-			for (Agent player : rightTeam.getAgents()) {
-				float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
-				if (distanceToBall < minimumDistanceToBall) {
-					minimumDistanceToBall = distanceToBall;
-					agent = player;
-				}
-			}
-
-			addStatistic(StatisticType.POSSESSION.name(),
-					new Statistic(time, StatisticType.POSSESSION,
-							agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
-			possessionStoreDelta = 0;
 		}
+
+		for (Agent player : rightTeam.getAgents()) {
+			float distanceToBall = player.getPosition().minus(ball.getPosition()).lengthSquared();
+			if (distanceToBall < minimumDistanceToBall) {
+				minimumDistanceToBall = distanceToBall;
+				agent = player;
+			}
+		}
+
+		addStatistic(StatisticType.POSSESSION.name(),
+				new Statistic(time, StatisticType.POSSESSION,
+						agent.getTeam().getID() == world.getLeftTeam().getID() ? 1 : 2, agent.getID()));
 	}
 
 	@Override
@@ -592,8 +680,7 @@ public class StatisticsParser implements GameState.ServerMessageReceivedListener
 	@Override
 	public void gsTimeChanged(GameState gs)
 	{
-		//		this.prevTime = this.time;
-		//		this.time = gs.getTime();
+		this.ballEstimator.update();
 	}
 
 	public void addStatistic(String key, Statistic statistic)
