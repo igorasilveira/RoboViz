@@ -164,6 +164,31 @@ public class Configuration
 		}
 	}
 
+	public static class StatisticsVariables
+	{
+		public int possessionInterval = 5;
+		public int positionsInterval = 5;
+		public int shotWideGap = 2;
+
+		private void read(BufferedReader in) throws IOException
+		{
+			getNextLine(in);
+			possessionInterval = getNextInt(in);
+			positionsInterval = getNextInt(in);
+			shotWideGap = getNextInt(in);
+			getNextLine(in);
+		}
+
+		private void write(BufferedWriter out) throws IOException
+		{
+			writeSection(out, "Statistics Variables");
+			writeVal(out, "Possession Interval", possessionInterval);
+			writeVal(out, "positionsInterval", positionsInterval);
+			writeVal(out, "Shot Wide Gap", shotWideGap);
+			out.write(getNewline());
+		}
+	}
+
 	public static class Networking
 	{
 		public boolean autoConnect = true;
@@ -281,6 +306,7 @@ public class Configuration
 
 	public final Graphics graphics = new Graphics();
 	public final OverlayVisibility overlayVisibility = new OverlayVisibility();
+	public final StatisticsVariables statisticsVariables = new StatisticsVariables();
 	public final Networking networking = new Networking();
 	public final General general = new General();
 	public final TeamColors teamColors = new TeamColors();
@@ -380,6 +406,7 @@ public class Configuration
 			out = new BufferedWriter(new FileWriter(configFile));
 			graphics.write(out);
 			overlayVisibility.write(out);
+			statisticsVariables.write(out);
 			networking.write(out);
 			general.write(out);
 			teamColors.write(out);
@@ -404,6 +431,7 @@ public class Configuration
 			try {
 				graphics.read(in);
 				overlayVisibility.read(in);
+				statisticsVariables.read(in);
 				networking.read(in);
 				general.read(in);
 				teamColors.read(in);
